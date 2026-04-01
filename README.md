@@ -1,8 +1,8 @@
 # UAV MCP Server
 
-This repository contains a thesis project scaffold for a simulation-first UAV control middleware based on the Model Context Protocol (MCP). The target system connects an AI agent to a PX4-based UAV running in Software-In-The-Loop (SITL), with safety checks between the MCP tool layer and the flight controller.
+This repository contains a simulation-first UAV control middleware for a thesis project built around the Model Context Protocol (MCP). The target system connects an AI agent to a PX4-based UAV running in Software-In-The-Loop (SITL), with a safety layer between the MCP tool surface and the flight controller.
 
-The initial repository is intentionally set up as a clean baseline: package layout, documentation structure, local development notes, and placeholders for the control, safety, testing, and evaluation modules. The implementation focus is the core UAV control path first; camera, POI, and web UI work are kept as stretch scope.
+The current implementation focuses on the core UAV control path first. Camera, POI, and web UI work remain stretch scope.
 
 ## Planned stack
 
@@ -23,17 +23,59 @@ src/uav_mcp_server/    Application package
 tests/                 Unit and integration tests
 ```
 
+## Implemented core
+
+- shared domain models and environment-backed settings
+- navigation helpers for relative movement and geofence math
+- telemetry manager with cached snapshot state
+- testable drone control layer with a backend protocol and live MAVSDK adapter
+- mission planning with bounded waypoint inputs
+- safety validation for state, preflight checks, bounds, geofence, and rate limiting
+- FastMCP server exposing a safe tool surface and read-only resources
+- fast unit and component coverage for the core control path
+
+## Safe MCP tool surface
+
+- `connect`
+- `arm`
+- `disarm`
+- `takeoff`
+- `land`
+- `hold`
+- `rtl`
+- `goto_relative`
+- `run_mission`
+- `get_status`
+- `get_telemetry`
+
 ## Current status
 
-- Repository scaffold initialized
-- Project docs added
-- Python package structure created
-- Local-only agent workspace separated through `.gitignore`
+- Core control, safety, and MCP server layers are implemented.
+- Fast local verification is in place with unit and component tests.
+- The main remaining blocker for end-to-end validation is live PX4 SITL verification on Ubuntu 24.04 with Python 3.12 and MAVSDK.
 
-## Next steps
+## Quick start
 
-1. Finalize environment setup on Ubuntu 24.04.
-2. Implement `types.py` and `config.py`.
-3. Add the MAVSDK telemetry and control layer.
-4. Build the safety layer before exposing MCP tools.
+```bash
+python3.12 -m venv .venv
+. .venv/bin/activate
+pip install -e ".[dev]"
+cp .env.example .env
+python -m uav_mcp_server --transport stdio
+```
 
+For HTTP transport:
+
+```bash
+python -m uav_mcp_server --transport streamable-http --host 127.0.0.1 --port 8000
+```
+
+## Verification
+
+Fast local tests:
+
+```bash
+PYTHONPATH=src python -m pytest -q
+```
+
+Live SITL verification is documented in [setup.md](/Users/eduardbaranovskyi/taltech-uav-mcp-server/docs/setup.md) and [demo.md](/Users/eduardbaranovskyi/taltech-uav-mcp-server/docs/demo.md).

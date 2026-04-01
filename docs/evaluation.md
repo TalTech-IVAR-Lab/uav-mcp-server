@@ -14,3 +14,14 @@ The thesis evaluation will focus on three technical questions:
 - rejection rates for invalid commands
 - recovery behavior after injected faults
 
+## Current readiness
+
+- the core control, safety, and MCP layers are implemented
+- the live PX4 SITL environment still needs to be verified on the target Python 3.12 setup
+- benchmark scripts should be added only after the live nominal path is stable
+
+## Evaluation prerequisites
+
+1. confirm the end-to-end SITL path: connect, arm, takeoff, move, land
+2. add integration coverage for nominal and rejected commands
+3. run benchmarks against the live stack, not the fake backend

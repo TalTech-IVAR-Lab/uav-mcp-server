@@ -1,8 +1,8 @@
 # Demo Outline
 
-The main demo should use the core scope, not the stretch features.
+The demo should use the core safe tool surface, not the stretch features.
 
-## Planned demo path
+## Current demo path
 
 1. Start PX4 SITL
 2. Start the MCP server
@@ -11,12 +11,25 @@ The main demo should use the core scope, not the stretch features.
    - connect
    - arm
    - takeoff
-   - move to a bounded target
-   - return to launch
+   - `goto_relative` to a bounded target
+   - hold or return to launch
    - land
+   - disarm if safe
+
+## Recommended tool surface
+
+- `connect`
+- `arm`
+- `takeoff`
+- `goto_relative`
+- `hold`
+- `rtl`
+- `land`
+- `disarm`
+- `get_status`
+- `get_telemetry`
 
 ## Observation tools
 
 - QGroundControl for visual monitoring
 - terminal logs for MCP calls and safety decisions
-
