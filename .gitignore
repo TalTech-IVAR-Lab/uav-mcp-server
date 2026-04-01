@@ -1,0 +1,22 @@
+# Local agent workspace
+AGENTS.md
+agent-knowledge-base/
+
+# Environment
+.env
+.venv/
+.python-version
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Build and results
+build/
+dist/
+results/
+

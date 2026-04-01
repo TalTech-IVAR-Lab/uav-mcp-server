@@ -1,0 +1,45 @@
+[build-system]
+requires = ["hatchling>=1.27.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "uav-mcp-server"
+version = "0.1.0"
+description = "Simulation-first MCP middleware for PX4 UAV control"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+authors = [
+  { name = "Eduard Baranovskyi" }
+]
+dependencies = [
+  "mcp[cli]>=1.0.0",
+  "mavsdk>=2.0.0",
+  "pydantic>=2.7.0",
+  "pydantic-settings>=2.2.1",
+  "structlog>=24.1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.3.0",
+  "pytest-asyncio>=0.24.0",
+  "pytest-cov>=5.0.0",
+  "ruff>=0.7.0",
+]
+
+[project.scripts]
+uav-mcp-server = "uav_mcp_server.server:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/uav_mcp_server"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+markers = [
+  "integration: tests that require PX4 SITL",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
