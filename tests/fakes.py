@@ -153,6 +153,15 @@ class FakeDroneBackend:
     async def publish_home(self, home_absolute_altitude_m: float = 140.0) -> None:
         await self._home_stream.publish(home_absolute_altitude_m)
 
+    async def publish_flight_mode(self, flight_mode: str) -> None:
+        await self._flight_mode_stream.publish(flight_mode)
+
+    async def publish_armed(self, armed: bool) -> None:
+        await self._armed_stream.publish(armed)
+
+    async def publish_in_air(self, in_air: bool) -> None:
+        await self._in_air_stream.publish(in_air)
+
     def _raise_if_configured(self) -> None:
         if self.should_fail:
             raise RuntimeError("configured failure")
