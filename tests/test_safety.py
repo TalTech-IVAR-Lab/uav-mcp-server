@@ -85,6 +85,29 @@ def test_rate_limit_applies_to_action_commands_only() -> None:
     assert read_only is None
 
 
+def test_invalid_command_does_not_consume_rate_limit_window() -> None:
+    validator = SafetyValidator(Settings(command_rate_limit_per_sec=1, max_altitude_m=50.0))
+    snapshot = _ready_snapshot(state=DroneState.ARMED)
+
+    invalid = validator.validate("takeoff", snapshot, altitude_m=200.0)
+    valid = validator.validate("takeoff", snapshot, altitude_m=20.0)
+
+    assert invalid is not None
+    assert invalid.error_code is ErrorCode.INVALID_PARAMS
+    assert valid is None
+
+
+def test_emergency_commands_are_rate_limit_exempt() -> None:
+    validator = SafetyValidator(Settings(command_rate_limit_per_sec=1))
+    snapshot = _ready_snapshot(state=DroneState.AIRBORNE)
+
+    first = validator.validate("goto_relative", snapshot, north_m=5.0, east_m=0.0, altitude_m=20.0)
+    emergency = validator.validate("rtl", snapshot)
+
+    assert first is None
+    assert emergency is None
+
+
 def test_mission_checks_speed_and_geofence() -> None:
     validator = SafetyValidator(Settings(max_speed_m_s=10.0, geofence_radius_m=500.0))
     snapshot = _ready_snapshot(state=DroneState.AIRBORNE)
@@ -99,3 +122,11 @@ def test_mission_checks_speed_and_geofence() -> None:
 
     assert violation is not None
     assert violation.error_code is ErrorCode.INVALID_PARAMS
+
+
+def test_fault_state_allows_reconnect() -> None:
+    validator = SafetyValidator(Settings())
+
+    violation = validator.validate("connect", _ready_snapshot(state=DroneState.FAULT))
+
+    assert violation is None

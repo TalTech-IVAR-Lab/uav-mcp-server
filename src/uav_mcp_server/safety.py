@@ -10,6 +10,7 @@ from uav_mcp_server.navigation import haversine_distance_m, offset_coordinate
 from uav_mcp_server.types import CommandResult, DroneState, ErrorCode, TelemetrySnapshot, WaypointInput
 
 READ_ONLY_COMMANDS = {"get_status", "get_telemetry"}
+RATE_LIMIT_EXEMPT_COMMANDS = READ_ONLY_COMMANDS | {"land", "rtl"}
 
 ALLOWED_COMMANDS_BY_STATE: dict[DroneState, set[str]] = {
     DroneState.DISCONNECTED: {"connect", *READ_ONLY_COMMANDS},
@@ -18,7 +19,7 @@ ALLOWED_COMMANDS_BY_STATE: dict[DroneState, set[str]] = {
     DroneState.ARMED: {"disarm", "takeoff", *READ_ONLY_COMMANDS},
     DroneState.AIRBORNE: {"land", "hold", "rtl", "goto_relative", "run_mission", *READ_ONLY_COMMANDS},
     DroneState.LANDING: {"land", "hold", "rtl", *READ_ONLY_COMMANDS},
-    DroneState.FAULT: {*READ_ONLY_COMMANDS},
+    DroneState.FAULT: {"connect", *READ_ONLY_COMMANDS},
 }
 
 
@@ -43,26 +44,28 @@ class SafetyValidator:
         if state_violation is not None:
             return state_violation
 
-        rate_violation = self._check_rate_limit(command_name)
-        if rate_violation is not None:
-            return rate_violation
-
         if command_name == "arm":
-            return self._validate_arm(telemetry)
-
-        if command_name == "takeoff":
-            return self._validate_takeoff(altitude_m)
-
-        if command_name == "goto_relative":
-            return self._validate_relative_move(
+            violation = self._validate_arm(telemetry)
+        elif command_name == "takeoff":
+            violation = self._validate_takeoff(altitude_m)
+        elif command_name == "goto_relative":
+            violation = self._validate_relative_move(
                 telemetry,
                 north_m=north_m,
                 east_m=east_m,
                 altitude_m=altitude_m,
             )
+        elif command_name == "run_mission":
+            violation = self._validate_mission(waypoints)
+        else:
+            violation = None
 
-        if command_name == "run_mission":
-            return self._validate_mission(waypoints)
+        if violation is not None:
+            return violation
+
+        rate_violation = self._check_rate_limit(command_name)
+        if rate_violation is not None:
+            return rate_violation
 
         return None
 
@@ -82,7 +85,7 @@ class SafetyValidator:
         )
 
     def _check_rate_limit(self, command_name: str) -> CommandResult | None:
-        if command_name in READ_ONLY_COMMANDS:
+        if command_name in RATE_LIMIT_EXEMPT_COMMANDS:
             return None
 
         now = monotonic()
