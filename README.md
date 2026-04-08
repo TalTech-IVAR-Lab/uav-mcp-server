@@ -79,4 +79,4 @@ Fast local tests:
 PYTHONPATH=src python -m pytest -q
 ```
 
-Live SITL verification is documented in [setup.md](/Users/eduardbaranovskyi/taltech-uav-mcp-server/docs/setup.md) and [demo.md](/Users/eduardbaranovskyi/taltech-uav-mcp-server/docs/demo.md).
+Live SITL verification is documented in [setup.md](docs/setup.md) and [demo.md](docs/demo.md).

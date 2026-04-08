@@ -1,6 +1,6 @@
 # Local agent workspace
 AGENTS.md
-agent-knowledge-base/
+agents-knowledge-base/
 
 # Environment
 .env
@@ -19,4 +19,3 @@ __pycache__/
 build/
 dist/
 results/
-
