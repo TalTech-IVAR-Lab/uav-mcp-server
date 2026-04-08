@@ -38,3 +38,4 @@ python -m uav_mcp_server --transport streamable-http --host 127.0.0.1 --port 800
 
 - Docker is acceptable for reproducibility, but native Linux is the preferred development path.
 - Camera-dependent work should stay out of the critical path until the core system is stable.
+- Fast local verification can run against the fake backend, but PX4 SITL validation still needs to happen on the target Python 3.12 environment before evaluation work starts.

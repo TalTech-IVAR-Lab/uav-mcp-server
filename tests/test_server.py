@@ -125,3 +125,13 @@ async def test_status_resource_reports_current_state() -> None:
     contents = await server.read_resource("uav://status/state")
 
     assert contents[0].content == TelemetrySnapshot().state.value
+
+
+@pytest.mark.asyncio
+async def test_safety_resource_includes_runtime_defaults() -> None:
+    server, _ = _server_with_fake_backend()
+
+    contents = await server.read_resource("uav://config/safety")
+
+    assert "default_takeoff_altitude_m" in contents[0].content
+    assert "default_mission_speed_m_s" in contents[0].content

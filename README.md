@@ -53,6 +53,7 @@ tests/                 Unit and integration tests
 - Core control, safety, and MCP server layers are implemented.
 - Fast local verification is in place with unit and component tests.
 - The main remaining blocker for end-to-end validation is live PX4 SITL verification on Ubuntu 24.04 with Python 3.12 and MAVSDK.
+- Fast verification in this workspace passed in a local `.venv` with `mcp 1.26.0`, `pydantic 2.12.5`, and `pytest 9.0.2`.
 
 ## Quick start
 

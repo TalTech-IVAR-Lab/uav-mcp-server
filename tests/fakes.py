@@ -140,12 +140,16 @@ class FakeDroneBackend:
         self,
         is_global_position_ok: bool = True,
         is_home_position_ok: bool = True,
+        is_gyrometer_calibration_ok: bool = True,
+        is_accelerometer_calibration_ok: bool = True,
         gps_satellites: int | None = 10,
     ) -> None:
         await self._health_stream.publish(
             HealthUpdate(
                 is_global_position_ok=is_global_position_ok,
                 is_home_position_ok=is_home_position_ok,
+                is_gyrometer_calibration_ok=is_gyrometer_calibration_ok,
+                is_accelerometer_calibration_ok=is_accelerometer_calibration_ok,
                 gps_satellites=gps_satellites,
             )
         )

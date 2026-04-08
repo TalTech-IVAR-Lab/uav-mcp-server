@@ -32,6 +32,7 @@ Mark live tests with `@pytest.mark.integration` and keep them out of the default
 - fast unit and component coverage is implemented
 - server behavior is verified against the real `mcp` package
 - live SITL integration tests still need to be added and run on Ubuntu 24.04 with Python 3.12
+- an opt-in `integration` smoke test entrypoint is available for the live PX4 path
 
 ## Priority
 

@@ -157,6 +157,16 @@ class MavsdkBackend:
             yield HealthUpdate(
                 is_global_position_ok=health.is_global_position_ok,
                 is_home_position_ok=health.is_home_position_ok,
+                is_gyrometer_calibration_ok=getattr(
+                    health,
+                    "is_gyrometer_calibration_ok",
+                    False,
+                ),
+                is_accelerometer_calibration_ok=getattr(
+                    health,
+                    "is_accelerometer_calibration_ok",
+                    False,
+                ),
             )
 
     async def flight_mode_updates(self) -> AsyncIterator[str]:
@@ -200,7 +210,9 @@ class DroneController:
         self._settings = settings
         self._backend = backend
         self._telemetry = telemetry_manager or TelemetryManager()
-        self._mission_manager = mission_manager or MissionManager(settings.max_speed_m_s)
+        self._mission_manager = mission_manager or MissionManager(
+            settings.default_mission_speed_m_s
+        )
 
     @property
     def telemetry_manager(self) -> TelemetryManager:

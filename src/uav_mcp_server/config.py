@@ -18,6 +18,9 @@ class Settings(BaseSettings):
     min_altitude_m: float = Field(default=2.0, ge=0)
     max_altitude_m: float = Field(default=120.0, gt=0)
     max_speed_m_s: float = Field(default=15.0, gt=0)
+    max_relative_move_distance_m: float = Field(default=150.0, gt=0)
+    default_takeoff_altitude_m: float = Field(default=10.0, gt=0)
+    default_mission_speed_m_s: float = Field(default=6.0, gt=0)
     command_rate_limit_per_sec: int = Field(default=2, ge=1)
     telemetry_rate_hz: int = Field(default=5, ge=1)
     min_battery_percent: int = Field(default=20, ge=0, le=100)
@@ -27,4 +30,3 @@ class Settings(BaseSettings):
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
     return Settings()
-

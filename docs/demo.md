@@ -29,6 +29,12 @@ The demo should use the core safe tool surface, not the stretch features.
 - `get_status`
 - `get_telemetry`
 
+Current runtime defaults exposed through the safety resource:
+
+- default takeoff altitude: `10 m`
+- default mission speed: `6 m/s`
+- max relative move distance per command: `150 m`
+
 ## Observation tools
 
 - QGroundControl for visual monitoring

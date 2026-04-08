@@ -64,6 +64,8 @@ class TelemetrySnapshot(BaseModel):
     home_absolute_altitude_m: float | None = None
     is_global_position_ok: bool = False
     is_home_position_ok: bool = False
+    is_gyrometer_calibration_ok: bool = False
+    is_accelerometer_calibration_ok: bool = False
     gps_satellites: int | None = Field(default=None, ge=0)
 
     def inferred_home_absolute_altitude_m(self) -> float | None:
@@ -95,6 +97,8 @@ class BatteryUpdate(BaseModel):
 class HealthUpdate(BaseModel):
     is_global_position_ok: bool = False
     is_home_position_ok: bool = False
+    is_gyrometer_calibration_ok: bool = False
+    is_accelerometer_calibration_ok: bool = False
     gps_satellites: int | None = Field(default=None, ge=0)
 
 

@@ -120,6 +120,16 @@ class SafetyValidator:
                 },
             )
 
+        if not telemetry.is_gyrometer_calibration_ok or not telemetry.is_accelerometer_calibration_ok:
+            return CommandResult.fail(
+                "Preflight checks failed: vehicle sensor calibration is incomplete.",
+                ErrorCode.PREFLIGHT_FAILED,
+                data={
+                    "is_gyrometer_calibration_ok": telemetry.is_gyrometer_calibration_ok,
+                    "is_accelerometer_calibration_ok": telemetry.is_accelerometer_calibration_ok,
+                },
+            )
+
         if telemetry.battery_percent is None:
             return CommandResult.fail(
                 "Preflight checks failed: battery telemetry is unavailable.",
@@ -175,6 +185,17 @@ class SafetyValidator:
         altitude_violation = self._validate_takeoff(altitude_m)
         if altitude_violation is not None:
             return altitude_violation
+
+        distance_m = (north_m**2 + east_m**2) ** 0.5
+        if distance_m > self._settings.max_relative_move_distance_m:
+            return CommandResult.fail(
+                "Relative movement distance exceeds the configured limit.",
+                ErrorCode.INVALID_PARAMS,
+                data={
+                    "distance_m": round(distance_m, 2),
+                    "max_relative_move_distance_m": self._settings.max_relative_move_distance_m,
+                },
+            )
 
         if telemetry.latitude_deg is None or telemetry.longitude_deg is None:
             return CommandResult.fail(

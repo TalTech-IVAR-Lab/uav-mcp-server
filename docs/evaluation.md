@@ -25,3 +25,4 @@ The thesis evaluation will focus on three technical questions:
 1. confirm the end-to-end SITL path: connect, arm, takeoff, move, land
 2. add integration coverage for nominal and rejected commands
 3. run benchmarks against the live stack, not the fake backend
+4. keep evaluation runs on the target Python 3.12 runtime so dependency behavior matches the thesis runtime

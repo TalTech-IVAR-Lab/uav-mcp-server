@@ -62,7 +62,11 @@ async def test_controller_rejects_relative_move_without_position() -> None:
 @pytest.mark.asyncio
 async def test_controller_runs_mission() -> None:
     backend = FakeDroneBackend()
-    controller = DroneController(Settings(), backend, TelemetryManager())
+    controller = DroneController(
+        Settings(default_mission_speed_m_s=6.5),
+        backend,
+        TelemetryManager(),
+    )
 
     result = await controller.run_mission(
         [WaypointInput(latitude_deg=59.4, longitude_deg=24.6, altitude_m=10.0)]
@@ -71,6 +75,7 @@ async def test_controller_runs_mission() -> None:
     assert result.success is True
     assert backend.started_missions == 1
     assert len(backend.uploaded_missions[-1]) == 1
+    assert backend.uploaded_missions[-1][0].speed_m_s == 6.5
 
 
 @pytest.mark.asyncio

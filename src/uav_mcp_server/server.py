@@ -91,7 +91,9 @@ def create_server(
         return await resolved_services.controller.disarm()
 
     @mcp.tool()
-    async def takeoff(altitude_m: float = 10.0) -> CommandResult:
+    async def takeoff(
+        altitude_m: float = resolved_services.settings.default_takeoff_altitude_m,
+    ) -> CommandResult:
         violation = validate("takeoff", altitude_m=altitude_m)
         if violation is not None:
             return violation
@@ -173,6 +175,9 @@ def create_server(
             "min_altitude_m": settings.min_altitude_m,
             "max_altitude_m": settings.max_altitude_m,
             "max_speed_m_s": settings.max_speed_m_s,
+            "max_relative_move_distance_m": settings.max_relative_move_distance_m,
+            "default_takeoff_altitude_m": settings.default_takeoff_altitude_m,
+            "default_mission_speed_m_s": settings.default_mission_speed_m_s,
             "command_rate_limit_per_sec": settings.command_rate_limit_per_sec,
             "min_battery_percent": settings.min_battery_percent,
         }

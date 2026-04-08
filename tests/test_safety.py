@@ -10,6 +10,8 @@ def _ready_snapshot(**overrides: object) -> TelemetrySnapshot:
         "battery_percent": 80.0,
         "is_global_position_ok": True,
         "is_home_position_ok": True,
+        "is_gyrometer_calibration_ok": True,
+        "is_accelerometer_calibration_ok": True,
         "latitude_deg": 59.3948,
         "longitude_deg": 24.6614,
         "absolute_altitude_m": 150.0,
@@ -24,6 +26,15 @@ def test_arm_requires_preflight_readiness() -> None:
     validator = SafetyValidator(Settings())
 
     violation = validator.validate("arm", _ready_snapshot(is_global_position_ok=False))
+
+    assert violation is not None
+    assert violation.error_code is ErrorCode.PREFLIGHT_FAILED
+
+
+def test_arm_requires_sensor_calibration() -> None:
+    validator = SafetyValidator(Settings())
+
+    violation = validator.validate("arm", _ready_snapshot(is_gyrometer_calibration_ok=False))
 
     assert violation is not None
     assert violation.error_code is ErrorCode.PREFLIGHT_FAILED
@@ -69,6 +80,21 @@ def test_goto_relative_rejects_targets_outside_geofence() -> None:
 
     assert violation is not None
     assert violation.error_code is ErrorCode.GEOFENCE_VIOLATION
+
+
+def test_goto_relative_rejects_distance_beyond_command_limit() -> None:
+    validator = SafetyValidator(Settings(max_relative_move_distance_m=20.0))
+
+    violation = validator.validate(
+        "goto_relative",
+        _ready_snapshot(state=DroneState.AIRBORNE),
+        north_m=30.0,
+        east_m=0.0,
+        altitude_m=20.0,
+    )
+
+    assert violation is not None
+    assert violation.error_code is ErrorCode.INVALID_PARAMS
 
 
 def test_rate_limit_applies_to_action_commands_only() -> None:

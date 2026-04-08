@@ -86,6 +86,8 @@ class TelemetryManager:
         if not snapshot.connected:
             return DroneState.DISCONNECTED
         if snapshot.in_air:
+            if snapshot.flight_mode is not None and "land" in snapshot.flight_mode.lower():
+                return DroneState.LANDING
             return DroneState.AIRBORNE
         if snapshot.armed:
             return DroneState.ARMED
@@ -126,6 +128,8 @@ class TelemetryManager:
                     connected=True,
                     is_global_position_ok=update.is_global_position_ok,
                     is_home_position_ok=update.is_home_position_ok,
+                    is_gyrometer_calibration_ok=update.is_gyrometer_calibration_ok,
+                    is_accelerometer_calibration_ok=update.is_accelerometer_calibration_ok,
                     gps_satellites=update.gps_satellites,
                 )
         except asyncio.CancelledError:
