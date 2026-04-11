@@ -9,11 +9,12 @@ from typing import Any
 from mcp.server.fastmcp import FastMCP
 
 from uav_mcp_server.config import Settings, get_settings
+from uav_mcp_server.dashboard import DashboardState, register_dashboard_routes
 from uav_mcp_server.drone import DroneController, DroneBackend, MavsdkBackend
 from uav_mcp_server.local_backend import LocalSimulationBackend
 from uav_mcp_server.safety import SafetyValidator
 from uav_mcp_server.telemetry import TelemetryManager
-from uav_mcp_server.types import CommandResult, TelemetrySnapshot, WaypointInput
+from uav_mcp_server.types import CommandResult, ErrorCode, TelemetrySnapshot, WaypointInput
 
 SERVER_INSTRUCTIONS = (
     "Safe UAV control server for PX4 SITL. Tools expose bounded, high-level actions "
@@ -191,6 +192,45 @@ def create_server(
             "command_rate_limit_per_sec": settings.command_rate_limit_per_sec,
             "min_battery_percent": settings.min_battery_percent,
         }
+
+    # --- Dashboard wiring ---
+    _tool_dispatch: dict[str, Any] = {
+        "connect": connect,
+        "arm": arm,
+        "disarm": disarm,
+        "takeoff": takeoff,
+        "land": land,
+        "hold": hold,
+        "rtl": rtl,
+        "goto_relative": goto_relative,
+        "get_status": get_status,
+        "get_telemetry": get_telemetry,
+    }
+
+    async def _dashboard_validate_and_run(command_name: str, params: dict[str, Any]) -> CommandResult:
+        handler = _tool_dispatch.get(command_name)
+        if handler is None:
+            return CommandResult.fail(
+                f"Unknown command: {command_name}",
+                ErrorCode.INVALID_PARAMS,
+            )
+        try:
+            result = await handler(**params)
+        except TypeError as exc:
+            return CommandResult.fail(
+                f"Invalid parameters for '{command_name}': {exc}",
+                ErrorCode.INVALID_PARAMS,
+            )
+        if isinstance(result, CommandResult):
+            return result
+        # get_telemetry returns TelemetrySnapshot
+        return CommandResult.ok("Telemetry retrieved.", data=result.model_dump(mode="json"))
+
+    dashboard_state = DashboardState(
+        get_snapshot=current_snapshot,
+        validate_and_run=_dashboard_validate_and_run,
+    )
+    register_dashboard_routes(mcp, dashboard_state)
 
     return mcp
 

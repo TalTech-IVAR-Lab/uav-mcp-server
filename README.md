@@ -2,7 +2,7 @@
 
 This repository contains a simulation-first UAV control middleware for a thesis project built around the Model Context Protocol (MCP). The target system connects an AI agent to a PX4-based UAV running in Software-In-The-Loop (SITL), with a safety layer between the MCP tool surface and the flight controller.
 
-The current implementation focuses on the core UAV control path first. Camera, POI, and web UI work remain stretch scope.
+The current implementation covers the core UAV control path and includes a thin operator dashboard for real-time telemetry and manual command execution. Camera, POI, and voice control remain stretch scope.
 
 ## Planned stack
 
@@ -108,6 +108,16 @@ docker compose -f docker-compose.server.yml up --build
 ```
 
 For live mode, keep PX4 SITL on the host and set `BACKEND_MODE=live` plus `PX4_CONNECTION_STRING=udpin://0.0.0.0:14540`.
+
+## Operator Dashboard
+
+When the server runs in HTTP mode, a thin operator dashboard is available at `/dashboard/`. It provides:
+
+- Real-time telemetry via Server-Sent Events (SSE)
+- Manual command execution through the same safety layer as MCP tools
+- Event log with command results and safety rejections
+
+The dashboard loads as a single HTML page with no external build system or CDN dependencies. QGroundControl can stay connected while the dashboard is in use.
 
 ## Verification
 
