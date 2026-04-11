@@ -2,8 +2,15 @@
 
 from __future__ import annotations
 
-from enum import StrEnum
 from typing import Any
+
+try:
+    from enum import StrEnum
+except ImportError:  # pragma: no cover - Python 3.10 fallback
+    from enum import Enum
+
+    class StrEnum(str, Enum):
+        pass
 
 from pydantic import BaseModel, Field
 

@@ -4,10 +4,9 @@ The demo should use the core safe tool surface, not the stretch features.
 
 ## Current demo path
 
-1. Start PX4 SITL
-2. Start the MCP server
-3. Connect from an MCP client
-4. Run a short sequence:
+1. Start the live stack with `scripts/launch_live_stack.sh`
+2. Connect from an MCP client
+3. Run a short sequence:
    - connect
    - arm
    - takeoff
@@ -39,3 +38,5 @@ Current runtime defaults exposed through the safety resource:
 
 - QGroundControl for visual monitoring
 - terminal logs for MCP calls and safety decisions
+- `scripts/smoke_http.py --mode flight` for an automated end-to-end flight smoke over HTTP
+- `docs/new-system-workflow.md` for full machine setup before the demo day

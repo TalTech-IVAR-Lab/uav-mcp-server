@@ -10,6 +10,7 @@ from mcp.server.fastmcp import FastMCP
 
 from uav_mcp_server.config import Settings, get_settings
 from uav_mcp_server.drone import DroneController, DroneBackend, MavsdkBackend
+from uav_mcp_server.local_backend import LocalSimulationBackend
 from uav_mcp_server.safety import SafetyValidator
 from uav_mcp_server.telemetry import TelemetryManager
 from uav_mcp_server.types import CommandResult, TelemetrySnapshot, WaypointInput
@@ -36,7 +37,7 @@ def build_services(
     telemetry_manager = TelemetryManager()
     controller = DroneController(
         settings=resolved_settings,
-        backend=backend or MavsdkBackend(),
+        backend=backend or _build_backend(resolved_settings),
         telemetry_manager=telemetry_manager,
     )
     return ServerServices(
@@ -44,6 +45,15 @@ def build_services(
         controller=controller,
         safety=SafetyValidator(resolved_settings),
     )
+
+
+def _build_backend(settings: Settings) -> DroneBackend:
+    if settings.backend_mode == "local":
+        return LocalSimulationBackend(
+            home_latitude_deg=settings.geofence_center_lat,
+            home_longitude_deg=settings.geofence_center_lon,
+        )
+    return MavsdkBackend()
 
 
 def create_server(
@@ -188,6 +198,12 @@ def create_server(
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Safe UAV MCP server")
     parser.add_argument(
+        "--backend",
+        default=None,
+        choices=("live", "local"),
+        help="Backend mode. Use 'local' for API-level testing without PX4 SITL.",
+    )
+    parser.add_argument(
         "--transport",
         default="stdio",
         choices=("stdio", "streamable-http", "http"),
@@ -202,5 +218,6 @@ def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
     transport = "streamable-http" if args.transport == "http" else args.transport
-    server = create_server(host=args.host, port=args.port)
+    settings = Settings(backend_mode=args.backend) if args.backend is not None else get_settings()
+    server = create_server(build_services(settings=settings), host=args.host, port=args.port)
     server.run(transport=transport)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from functools import lru_cache
+from typing import Literal
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -11,6 +12,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
+    backend_mode: Literal["live", "local"] = Field(default="live")
     px4_connection_string: str = Field(default="udpin://0.0.0.0:14540")
     geofence_center_lat: float = Field(default=59.3948)
     geofence_center_lon: float = Field(default=24.6614)

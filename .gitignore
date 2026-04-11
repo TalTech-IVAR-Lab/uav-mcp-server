@@ -5,6 +5,7 @@ agents-knowledge-base/
 # Environment
 .env
 .venv/
+.venv312/
 .python-version
 
 # Python
@@ -19,3 +20,4 @@ __pycache__/
 build/
 dist/
 results/
+.run/

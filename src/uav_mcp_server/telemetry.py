@@ -41,6 +41,7 @@ class TelemetryManager:
     def __init__(self) -> None:
         self._snapshot = TelemetrySnapshot()
         self._lock = asyncio.Lock()
+        self._changed = asyncio.Condition(self._lock)
         self._tasks: list[asyncio.Task[None]] = []
 
     def get_snapshot(self) -> TelemetrySnapshot:
@@ -70,7 +71,7 @@ class TelemetryManager:
             await asyncio.gather(*tasks, return_exceptions=True)
 
     async def update(self, **changes: object) -> None:
-        async with self._lock:
+        async with self._changed:
             state_override = changes.pop("state", None)
             snapshot = self._snapshot.model_copy(update=changes)
             if state_override is not None:
@@ -78,6 +79,22 @@ class TelemetryManager:
             else:
                 snapshot.state = self._derive_state(snapshot)
             self._snapshot = snapshot
+            self._changed.notify_all()
+
+    async def wait_for(
+        self,
+        predicate,
+        timeout_s: float,
+    ) -> TelemetrySnapshot:
+        async def _await_match() -> TelemetrySnapshot:
+            async with self._changed:
+                if predicate(self._snapshot):
+                    return self._snapshot.model_copy(deep=True)
+
+                await self._changed.wait_for(lambda: predicate(self._snapshot))
+                return self._snapshot.model_copy(deep=True)
+
+        return await asyncio.wait_for(_await_match(), timeout=timeout_s)
 
     async def set_fault(self) -> None:
         await self.update(state=DroneState.FAULT)

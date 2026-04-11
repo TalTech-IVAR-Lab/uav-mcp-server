@@ -6,7 +6,7 @@ directly on MAVSDK objects.
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from typing import Any, Protocol
 from urllib.parse import urlparse
 
@@ -150,7 +150,9 @@ class MavsdkBackend:
 
     async def battery_updates(self) -> AsyncIterator[BatteryUpdate]:
         async for battery in self._system.telemetry.battery():
-            yield BatteryUpdate(battery_percent=round(battery.remaining_percent * 100, 2))
+            yield BatteryUpdate(
+                battery_percent=self._normalize_battery_percent(battery.remaining_percent)
+            )
 
     async def health_updates(self) -> AsyncIterator[HealthUpdate]:
         async for health in self._system.telemetry.health():
@@ -196,9 +198,18 @@ class MavsdkBackend:
             return f"udp://:{port}"
         return f"udp://{host}:{port}"
 
+    def _normalize_battery_percent(self, remaining_percent: float) -> float:
+        if remaining_percent <= 1.0:
+            return round(remaining_percent * 100, 2)
+        return round(min(remaining_percent, 100.0), 2)
+
 
 class DroneController:
     """High-level UAV control interface."""
+
+    _ARM_CONFIRMATION_TIMEOUT_S = 5.0
+    _DISARM_CONFIRMATION_TIMEOUT_S = 5.0
+    _TAKEOFF_CONFIRMATION_TIMEOUT_S = 15.0
 
     def __init__(
         self,
@@ -231,14 +242,20 @@ class DroneController:
         return await self._run_backend_action(
             self._backend.arm,
             "Vehicle armed.",
-            on_success=lambda: self._telemetry.update(connected=True, armed=True),
+            postcondition=lambda snapshot: snapshot.armed,
+            postcondition_timeout_s=self._ARM_CONFIRMATION_TIMEOUT_S,
+            postcondition_failure_message="Arm command was accepted but telemetry never confirmed an armed state.",
         )
 
     async def disarm(self) -> CommandResult:
         return await self._run_backend_action(
             self._backend.disarm,
             "Vehicle disarmed.",
-            on_success=lambda: self._telemetry.update(armed=False, in_air=False),
+            postcondition=lambda snapshot: not snapshot.armed and not snapshot.in_air,
+            postcondition_timeout_s=self._DISARM_CONFIRMATION_TIMEOUT_S,
+            postcondition_failure_message=(
+                "Disarm command was accepted but telemetry never confirmed a landed, disarmed state."
+            ),
         )
 
     async def takeoff(self, altitude_m: float) -> CommandResult:
@@ -250,7 +267,11 @@ class DroneController:
             command,
             "Takeoff command accepted.",
             data={"target_altitude_m": altitude_m},
-            on_success=lambda: self._telemetry.update(connected=True, armed=True),
+            postcondition=lambda snapshot: snapshot.armed and snapshot.in_air,
+            postcondition_timeout_s=self._TAKEOFF_CONFIRMATION_TIMEOUT_S,
+            postcondition_failure_message=(
+                "Takeoff command was accepted but telemetry never confirmed an airborne state."
+            ),
         )
 
     async def land(self) -> CommandResult:
@@ -350,11 +371,28 @@ class DroneController:
         success_message: str,
         data: dict[str, Any] | None = None,
         on_success: Any | None = None,
+        postcondition: Callable[[TelemetrySnapshot], bool] | None = None,
+        postcondition_timeout_s: float | None = None,
+        postcondition_failure_message: str | None = None,
     ) -> CommandResult:
         try:
             await action()
             if on_success is not None:
                 await on_success()
+            if postcondition is not None:
+                try:
+                    await self._telemetry.wait_for(
+                        postcondition,
+                        timeout_s=postcondition_timeout_s or self._ARM_CONFIRMATION_TIMEOUT_S,
+                    )
+                except TimeoutError:
+                    snapshot = self._telemetry.get_snapshot()
+                    return CommandResult.fail(
+                        postcondition_failure_message
+                        or f"{success_message.rstrip('.')} was not confirmed by telemetry.",
+                        ErrorCode.BACKEND_ERROR,
+                        data={**(data or {}), "telemetry": snapshot.model_dump(mode="json")},
+                    )
             return CommandResult.ok(success_message, data=data)
         except Exception as exc:
             return CommandResult.fail(

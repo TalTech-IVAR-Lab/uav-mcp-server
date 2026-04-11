@@ -52,8 +52,9 @@ tests/                 Unit and integration tests
 
 - Core control, safety, and MCP server layers are implemented.
 - Fast local verification is in place with unit and component tests.
-- The main remaining blocker for end-to-end validation is live PX4 SITL verification on Ubuntu 24.04 with Python 3.12 and MAVSDK.
-- Fast verification in this workspace passed in a local `.venv` with `mcp 1.26.0`, `pydantic 2.12.5`, and `pytest 9.0.2`.
+- A local `--backend local` mode is available for API-level testing without PX4 SITL or MAVSDK.
+- Live SITL is validated on this workspace through the repo-managed launch path.
+- The preferred deployment target remains Ubuntu 24.04 with Gazebo Harmonic, while Ubuntu 22.04 is currently supported through a Gazebo Classic fallback.
 
 ## Quick start
 
@@ -69,6 +70,22 @@ For HTTP transport:
 
 ```bash
 python -m uav_mcp_server --transport streamable-http --host 127.0.0.1 --port 8000
+```
+
+For the best live launch path on a workstation with PX4 already checked out next to this repo:
+
+```bash
+scripts/launch_live_stack.sh
+```
+
+The launcher starts PX4 SITL headless, picks `gz_x500` when Gazebo Harmonic is available, falls back to `gazebo-classic` otherwise, aligns the SITL home position with the configured geofence, starts the HTTP MCP server, and runs a smoke check before returning.
+
+For full install and launch instructions on a fresh workstation, see [new-system-workflow.md](docs/new-system-workflow.md).
+
+For local API testing without PX4 SITL:
+
+```bash
+PYTHONPATH=src python3 -m uav_mcp_server --transport streamable-http --backend local --host 127.0.0.1 --port 8000
 ```
 
 ## Verification
