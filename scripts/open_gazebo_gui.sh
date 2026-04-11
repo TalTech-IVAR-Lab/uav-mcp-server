@@ -17,9 +17,10 @@ GAZEBO_MASTER_URI_VALUE="${GAZEBO_MASTER_URI_VALUE:-http://127.0.0.1:11345}"
 
 if [ -n "${LIBGL_ALWAYS_SOFTWARE_VALUE:-}" ]; then
   resolved_libgl_software="$LIBGL_ALWAYS_SOFTWARE_VALUE"
-elif [ "${XDG_SESSION_TYPE:-}" = "wayland" ]; then
-  resolved_libgl_software="1"
 else
+  # Prefer hardware rendering even on Wayland — the XCB/X11 overrides below
+  # handle the display protocol; forcing software rendering on integrated GPUs
+  # makes gzclient unresponsive.
   resolved_libgl_software="0"
 fi
 
@@ -72,10 +73,13 @@ env \
 gui_pid="$!"
 echo "$gui_pid" >"$PID_FILE"
 
-sleep 2
+sleep 4
 
 if ! kill -0 "$gui_pid" 2>/dev/null; then
   echo "Gazebo GUI exited early. Check $LOG_FILE" >&2
+  echo ""
+  echo "If you see an X11/Wayland error, try:"
+  echo "  LIBGL_ALWAYS_SOFTWARE_VALUE=1 $0"
   exit 1
 fi
 
