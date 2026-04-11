@@ -216,6 +216,36 @@ cd <workspace>/taltech-uav-mcp-server
 scripts/stop_live_stack.sh
 ```
 
+## 9a. Optional server-only Docker deployment
+
+This path packages only the Python MCP server. PX4 SITL and Gazebo remain on the host.
+
+Build:
+
+```bash
+cd <workspace>/taltech-uav-mcp-server
+docker build -t uav-mcp-server .
+```
+
+Run local backend mode:
+
+```bash
+docker run --rm -p 8000:8000 -e BACKEND_MODE=local uav-mcp-server
+```
+
+Run live mode on Linux against host PX4:
+
+```bash
+cd <workspace>/taltech-uav-mcp-server
+BACKEND_MODE=live PX4_CONNECTION_STRING=udpin://0.0.0.0:14540 \
+docker compose -f docker-compose.server.yml up --build
+```
+
+Notes:
+- the compose file uses `network_mode: host`, so this live path is Linux-focused
+- the container does not launch PX4 SITL or Gazebo
+- keep the host live stack or host PX4 SITL running separately
+
 ## 10. Logs and troubleshooting
 
 Repo-managed runtime artifacts:

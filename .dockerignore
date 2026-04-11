@@ -1,0 +1,16 @@
+.git
+.gitignore
+.pytest_cache/
+.ruff_cache/
+.venv/
+.venv312/
+.run/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+PX4-Autopilot/
+agents-knowledge-base/
+taltech-uav-mcp-server-agents-knowledge-base/
+evaluation/results/

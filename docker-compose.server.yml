@@ -1,0 +1,13 @@
+services:
+  uav-mcp-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      BACKEND_MODE: ${BACKEND_MODE:-local}
+      HOST: ${HOST:-0.0.0.0}
+      PORT: ${PORT:-8000}
+      TRANSPORT: ${TRANSPORT:-streamable-http}
+      PX4_CONNECTION_STRING: ${PX4_CONNECTION_STRING:-udpin://0.0.0.0:14540}
+    network_mode: host
+    restart: unless-stopped

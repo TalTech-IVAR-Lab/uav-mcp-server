@@ -90,6 +90,25 @@ For local API testing without PX4 SITL:
 PYTHONPATH=src python3 -m uav_mcp_server --transport streamable-http --backend local --host 127.0.0.1 --port 8000
 ```
 
+## Server-only Docker
+
+The repository now includes a server-only container path. It packages the Python MCP server, not PX4 or Gazebo.
+
+Local backend mode:
+
+```bash
+docker build -t uav-mcp-server .
+docker run --rm -p 8000:8000 -e BACKEND_MODE=local uav-mcp-server
+```
+
+Live mode against host PX4 on Linux:
+
+```bash
+docker compose -f docker-compose.server.yml up --build
+```
+
+For live mode, keep PX4 SITL on the host and set `BACKEND_MODE=live` plus `PX4_CONNECTION_STRING=udpin://0.0.0.0:14540`.
+
 ## Verification
 
 Fast local tests:
