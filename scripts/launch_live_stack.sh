@@ -27,6 +27,10 @@ else
   PX4_DIR="$PX4_DIR_RAW"
 fi
 
+source "$SCRIPT_DIR/sitl_profile.sh"
+EXPECTED_PX4_MODEL="$(sitl_resolve_px4_model "${PX4_MODEL:-}")"
+SITL_RUNTIME="$(sitl_model_runtime "$EXPECTED_PX4_MODEL")"
+
 mkdir -p "$LOG_DIR"
 
 if [ -x "$REPO_ROOT/.venv312/bin/python" ]; then
@@ -153,13 +157,15 @@ ensure_no_orphaned_simulator_processes() {
     return
   fi
 
-  if pgrep -f "$PX4_DIR/Tools/simulation/gazebo-classic/sitl_gazebo-classic" >/dev/null 2>&1; then
+  if [ "$SITL_RUNTIME" = "classic" ] \
+    && pgrep -f "$PX4_DIR/Tools/simulation/gazebo-classic/sitl_gazebo-classic" >/dev/null 2>&1; then
     echo "A repo-scoped Gazebo Classic simulator process is still running." >&2
     echo "Run 'scripts/stop_live_stack.sh --force' before relaunching." >&2
     exit 1
   fi
 
-  if pgrep -f "$PX4_DIR/Tools/simulation/gz/" >/dev/null 2>&1; then
+  if [ "$SITL_RUNTIME" = "harmonic" ] \
+    && pgrep -f "$PX4_DIR/Tools/simulation/gz/" >/dev/null 2>&1; then
     echo "A repo-scoped Gazebo Harmonic simulator process is still running." >&2
     echo "Run 'scripts/stop_live_stack.sh --force' before relaunching." >&2
     exit 1
@@ -175,8 +181,12 @@ record_sitl_runtime_pids() {
 
   {
     pgrep -f "$PX4_DIR/build/px4_sitl_default/bin/px4" || true
-    pgrep -f "$PX4_DIR/Tools/simulation/gazebo-classic/sitl_gazebo-classic" || true
-    pgrep -f "$PX4_DIR/Tools/simulation/gz/" || true
+    if [ "$SITL_RUNTIME" = "classic" ]; then
+      pgrep -f "$PX4_DIR/Tools/simulation/gazebo-classic/sitl_gazebo-classic" || true
+    fi
+    if [ "$SITL_RUNTIME" = "harmonic" ]; then
+      pgrep -f "$PX4_DIR/Tools/simulation/gz/" || true
+    fi
   } | awk 'NF && !seen[$0]++' >"$SITL_EXTRA_PIDS_FILE"
 }
 
@@ -189,7 +199,7 @@ ensure_no_orphaned_simulator_processes
 
 echo "Starting PX4 SITL"
 setsid bash -lc \
-  "cd '$REPO_ROOT' && export HEADLESS='$HEADLESS' && scripts/start_sitl.sh" \
+  "cd '$REPO_ROOT' && export HEADLESS='$HEADLESS' PX4_MODEL='$EXPECTED_PX4_MODEL' && scripts/start_sitl.sh" \
   >"$SITL_LOG" 2>&1 &
 sitl_pid="$!"
 echo "$sitl_pid" >"$SITL_PID_FILE"

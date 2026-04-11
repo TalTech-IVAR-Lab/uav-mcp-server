@@ -80,6 +80,8 @@ scripts/launch_live_stack.sh
 
 The launcher starts PX4 SITL headless, picks `gz_x500` when Gazebo Harmonic is available, falls back to `gazebo-classic` otherwise, aligns the SITL home position with the configured geofence, starts the HTTP MCP server, and runs a smoke check before returning.
 
+The supported explicit `PX4_MODEL` values for the launcher are `gz_x500` and `gazebo-classic`. If you request a model that is not supported on the current host, the launcher fails fast instead of silently falling back.
+
 For full install and launch instructions on a fresh workstation, see [new-system-workflow.md](docs/new-system-workflow.md).
 
 For local API testing without PX4 SITL:

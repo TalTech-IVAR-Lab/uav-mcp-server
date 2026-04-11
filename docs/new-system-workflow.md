@@ -177,6 +177,8 @@ Environment overrides you may use:
 - `HEADLESS=1`
 - `SMOKE_MODE=status|connect|flight`
 
+If `PX4_MODEL` is set explicitly, the launcher does not silently fall back. It fails fast when the requested simulator stack is not installed on the host.
+
 ## 8. Validate the running stack
 
 Fast local tests:

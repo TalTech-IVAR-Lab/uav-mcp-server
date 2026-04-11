@@ -48,6 +48,7 @@ scripts/launch_live_stack.sh
 This launcher:
 - detects whether Gazebo Harmonic support is present and prefers `gz_x500` when it is
 - falls back to `gazebo-classic` on hosts like Ubuntu 22.04 that only have Gazebo Classic installed
+- accepts only `PX4_MODEL=gz_x500` or `PX4_MODEL=gazebo-classic` as explicit overrides and fails fast if the requested host stack is missing
 - aligns PX4 home latitude and longitude with the configured geofence
 - starts the HTTP MCP server and runs an HTTP smoke check
 
