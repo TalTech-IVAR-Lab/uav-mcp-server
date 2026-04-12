@@ -107,6 +107,16 @@ cp .env.example .env
 
 The scripts prefer `.venv312` automatically.
 
+Optional dashboard camera support:
+
+```bash
+cd <workspace>/taltech-uav-mcp-server
+. .venv312/bin/activate
+pip install -e ".[camera]"
+```
+
+ROS2 camera streaming also requires the host ROS2 packages and environment for `rclpy` and `sensor_msgs`.
+
 ## 4. Install PX4 Python-side requirements
 
 PX4 needs its own Python tooling in the same environment used to build and run SITL:
@@ -151,6 +161,12 @@ Important defaults in `.env`:
 - `DEFAULT_TAKEOFF_ALTITUDE_M`
 
 The SITL launcher reads `GEOFENCE_CENTER_LAT` and `GEOFENCE_CENTER_LON` from `.env` and uses them as `PX4_HOME_LAT` and `PX4_HOME_LON`. This keeps live `goto_relative` validation aligned with the server's geofence.
+
+Current repo defaults target the CERN Science Gateway area:
+- `GEOFENCE_CENTER_LAT=46.2331`
+- `GEOFENCE_CENTER_LON=6.0556`
+
+On Gazebo Classic hosts, the launcher also defaults `PX4_SITL_WORLD` to the repo-local CERN world at `sim/gazebo-classic/worlds/cern_science_gateway.world`.
 
 ## 7. Launch the full live stack
 

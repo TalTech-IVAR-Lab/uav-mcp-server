@@ -73,13 +73,31 @@ def test_resolve_px4_model_falls_back_to_gazebo_classic(tmp_path: Path) -> None:
     assert result.stdout.strip() == "gazebo-classic"
 
 
+def test_make_target_uses_camera_airframe_for_gazebo_classic(tmp_path: Path) -> None:
+    write_fake_pkg_config(tmp_path, gazebo_exists=True)
+
+    result = run_bash('sitl_make_target "gazebo-classic"', tmp_path=tmp_path)
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "gazebo-classic_iris_fpv_cam"
+
+
+def test_make_target_preserves_explicit_classic_camera_model(tmp_path: Path) -> None:
+    write_fake_pkg_config(tmp_path, gazebo_exists=True)
+
+    result = run_bash('sitl_make_target "gazebo-classic_iris_fpv_cam"', tmp_path=tmp_path)
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "gazebo-classic_iris_fpv_cam"
+
+
 def test_resolve_px4_model_rejects_unsupported_explicit_model(tmp_path: Path) -> None:
     write_fake_pkg_config(tmp_path, gazebo_exists=True)
 
     result = run_bash('sitl_resolve_px4_model "gz_x500_depth"', tmp_path=tmp_path)
 
     assert result.returncode != 0
-    assert "Supported PX4_MODEL values: gz_x500 gazebo-classic" in result.stderr
+    assert "Supported PX4_MODEL values: gz_x500 gazebo-classic gazebo-classic_iris_fpv_cam" in result.stderr
 
 
 def test_resolve_px4_model_rejects_harmonic_without_packages(tmp_path: Path) -> None:

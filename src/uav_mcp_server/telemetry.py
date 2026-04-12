@@ -9,6 +9,7 @@ from collections.abc import AsyncIterator
 from typing import Protocol
 
 from uav_mcp_server.types import (
+    AttitudeUpdate,
     BatteryUpdate,
     DroneState,
     HealthUpdate,
@@ -21,6 +22,8 @@ logger = logging.getLogger(__name__)
 
 class TelemetryBackend(Protocol):
     def position_updates(self) -> AsyncIterator[PositionUpdate]: ...
+
+    def attitude_updates(self) -> AsyncIterator[AttitudeUpdate]: ...
 
     def battery_updates(self) -> AsyncIterator[BatteryUpdate]: ...
 
@@ -51,6 +54,7 @@ class TelemetryManager:
         await self.stop()
         self._tasks = [
             asyncio.create_task(self._consume_positions(backend.position_updates())),
+            asyncio.create_task(self._consume_attitude(backend.attitude_updates())),
             asyncio.create_task(self._consume_battery(backend.battery_updates())),
             asyncio.create_task(self._consume_health(backend.health_updates())),
             asyncio.create_task(self._consume_text(backend.flight_mode_updates(), "flight_mode")),
@@ -136,6 +140,21 @@ class TelemetryManager:
             raise
         except Exception as exc:
             logger.warning("Battery telemetry stream failed: %s", exc)
+            await self.set_fault()
+
+    async def _consume_attitude(self, stream: AsyncIterator[AttitudeUpdate]) -> None:
+        try:
+            async for update in stream:
+                await self.update(
+                    connected=True,
+                    yaw_deg=update.yaw_deg,
+                    pitch_deg=update.pitch_deg,
+                    roll_deg=update.roll_deg,
+                )
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.warning("Attitude telemetry stream failed: %s", exc)
             await self.set_fault()
 
     async def _consume_health(self, stream: AsyncIterator[HealthUpdate]) -> None:

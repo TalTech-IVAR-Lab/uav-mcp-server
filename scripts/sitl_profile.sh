@@ -3,7 +3,7 @@
 set -euo pipefail
 
 sitl_supported_models() {
-  printf '%s\n' "gz_x500 gazebo-classic"
+  printf '%s\n' "gz_x500 gazebo-classic gazebo-classic_iris_fpv_cam"
 }
 
 sitl_has_gz_harmonic_stack() {
@@ -27,8 +27,29 @@ sitl_model_runtime() {
     gz_x500)
       printf '%s\n' "harmonic"
       ;;
-    gazebo-classic)
+    gazebo-classic|gazebo-classic_iris_fpv_cam)
       printf '%s\n' "classic"
+      ;;
+    *)
+      echo "Unsupported PX4 model '$model'." >&2
+      echo "Supported PX4_MODEL values: $(sitl_supported_models)" >&2
+      return 1
+      ;;
+  esac
+}
+
+sitl_make_target() {
+  local model="$1"
+
+  case "$model" in
+    gz_x500)
+      printf '%s\n' "gz_x500"
+      ;;
+    gazebo-classic)
+      printf '%s\n' "gazebo-classic_iris_fpv_cam"
+      ;;
+    gazebo-classic_iris_fpv_cam)
+      printf '%s\n' "gazebo-classic_iris_fpv_cam"
       ;;
     *)
       echo "Unsupported PX4 model '$model'." >&2

@@ -4,6 +4,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+SIM_CLASSIC_WORLD_DIR="${SIM_CLASSIC_WORLD_DIR:-$REPO_ROOT/sim/gazebo-classic/worlds}"
 RUN_DIR="${RUN_DIR:-$REPO_ROOT/.run}"
 PX4_DIR_RAW="${PX4_DIR:-$REPO_ROOT/../PX4-Autopilot}"
 if [ -d "$PX4_DIR_RAW" ]; then
@@ -189,4 +190,6 @@ if [ "$FORCE_CLEAN" -eq 1 ]; then
     stop_matching_processes "Gazebo Classic model spawner" "--spawn-file=$PX4_DIR/Tools/simulation/gazebo-classic/sitl_gazebo-classic"
     stop_matching_processes "Gazebo Harmonic simulator" "$PX4_DIR/Tools/simulation/gz/"
   fi
+
+  stop_matching_processes "Repo Gazebo Classic world" "$SIM_CLASSIC_WORLD_DIR/"
 fi

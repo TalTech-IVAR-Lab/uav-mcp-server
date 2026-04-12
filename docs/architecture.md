@@ -6,11 +6,12 @@ The system exposes safe, bounded UAV control functions through MCP while keeping
 
 ## Core layers
 
-1. MCP server
+1. MCP server and dashboard routes
 2. Safety and validation layer
 3. Drone control layer built on a testable backend boundary
 4. MAVSDK adapter
-5. PX4 SITL + Gazebo
+5. Optional dashboard helpers: camera ingestion and projection math
+6. PX4 SITL + Gazebo
 
 ## Main data flow
 
@@ -43,9 +44,12 @@ Future iteration: expose telemetry as an MCP Resource with subscription support 
 ## Current implementation notes
 
 - `server.py` wires the FastMCP tool surface and read-only resources
+- `dashboard.py` and `dashboard_ui.py` provide the operator web surface on the same process and port
 - `safety.py` owns state, preflight, bounds, geofence, and rate-limit checks
-- `drone.py` keeps the control path testable by depending on a backend protocol instead of directly on MAVSDK objects
-- `telemetry.py` owns the in-memory `TelemetrySnapshot` cache and telemetry subscriptions
+- `drone.py` keeps the control path testable by depending on a backend protocol instead of directly on MAVSDK objects and now includes orbit dispatch
+- `telemetry.py` owns the in-memory `TelemetrySnapshot` cache and telemetry subscriptions, including attitude
+- `camera.py` optionally bridges ROS2 image messages into MJPEG for the dashboard
+- `projection.py` handles pixel-to-world coordinate projection for target selection workflows
 
 ## Core scope
 
@@ -56,12 +60,13 @@ Future iteration: expose telemetry as an MCP Resource with subscription support 
 - land
 - return-to-launch
 - bounded point-to-point movement
+- bounded orbit around a selected or specified point
 - waypoint mission execution
 - telemetry and status
+- operator web UI with telemetry, event log, live map, camera feed, target selection, and browser voice control
 
-## Stretch scope
+## Deferred scope
 
-- camera feed
 - gimbal control
-- point-of-interest workflow
-- web UI for human-in-the-loop interaction
+- semantic object detection
+- terrain-aware or 3D projection beyond the flat-ground assumption

@@ -16,6 +16,14 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 
+# Large binary assets (Google Earth exports, etc.)
+*.glb
+
+# Large mesh files (OBJ, textures) — too big for git without LFS
+sim/gazebo-classic/models/*/meshes/*.obj
+sim/gazebo-classic/models/*/meshes/*.jpg
+sim/gazebo-classic/models/*/meshes/textures/
+
 # Build and results
 build/
 dist/

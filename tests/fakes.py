@@ -5,11 +5,16 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 
 from uav_mcp_server.types import (
+    AttitudeUpdate,
     BatteryUpdate,
     HealthUpdate,
     MissionWaypoint,
+    OrbitYawBehavior,
     PositionUpdate,
 )
+
+DEFAULT_TEST_LATITUDE_DEG = 46.2331
+DEFAULT_TEST_LONGITUDE_DEG = 6.0556
 
 
 class _AsyncStream:
@@ -30,9 +35,11 @@ class FakeDroneBackend:
     connected_to: str | None = None
     takeoff_altitude_m: float | None = None
     goto_calls: list[tuple[float, float, float, float]] = field(default_factory=list)
+    orbit_calls: list[tuple[float, float, float, float, float, str]] = field(default_factory=list)
     uploaded_missions: list[list[MissionWaypoint]] = field(default_factory=list)
     started_missions: int = 0
     _position_stream: _AsyncStream = field(default_factory=_AsyncStream)
+    _attitude_stream: _AsyncStream = field(default_factory=_AsyncStream)
     _battery_stream: _AsyncStream = field(default_factory=_AsyncStream)
     _health_stream: _AsyncStream = field(default_factory=_AsyncStream)
     _flight_mode_stream: _AsyncStream = field(default_factory=_AsyncStream)
@@ -87,6 +94,27 @@ class FakeDroneBackend:
         self._raise_if_configured()
         self.goto_calls.append((latitude_deg, longitude_deg, absolute_altitude_m, yaw_deg))
 
+    async def orbit(
+        self,
+        latitude_deg: float,
+        longitude_deg: float,
+        absolute_altitude_m: float,
+        radius_m: float,
+        velocity_m_s: float,
+        yaw_behavior: OrbitYawBehavior,
+    ) -> None:
+        self._raise_if_configured()
+        self.orbit_calls.append(
+            (
+                latitude_deg,
+                longitude_deg,
+                absolute_altitude_m,
+                radius_m,
+                velocity_m_s,
+                yaw_behavior.value,
+            )
+        )
+
     async def upload_mission(self, waypoints: list[MissionWaypoint]) -> None:
         self._raise_if_configured()
         self.uploaded_missions.append(waypoints)
@@ -98,6 +126,9 @@ class FakeDroneBackend:
 
     def position_updates(self) -> AsyncIterator[PositionUpdate]:
         return self._position_stream.iterate()  # type: ignore[return-value]
+
+    def attitude_updates(self) -> AsyncIterator[AttitudeUpdate]:
+        return self._attitude_stream.iterate()  # type: ignore[return-value]
 
     def battery_updates(self) -> AsyncIterator[BatteryUpdate]:
         return self._battery_stream.iterate()  # type: ignore[return-value]
@@ -119,8 +150,8 @@ class FakeDroneBackend:
 
     async def publish_position(
         self,
-        latitude_deg: float = 59.3948,
-        longitude_deg: float = 24.6614,
+        latitude_deg: float = DEFAULT_TEST_LATITUDE_DEG,
+        longitude_deg: float = DEFAULT_TEST_LONGITUDE_DEG,
         absolute_altitude_m: float = 150.0,
         relative_altitude_m: float = 10.0,
     ) -> None:
@@ -135,6 +166,16 @@ class FakeDroneBackend:
 
     async def publish_battery(self, battery_percent: float = 75.0) -> None:
         await self._battery_stream.publish(BatteryUpdate(battery_percent=battery_percent))
+
+    async def publish_attitude(
+        self,
+        yaw_deg: float = 90.0,
+        pitch_deg: float = 0.0,
+        roll_deg: float = 0.0,
+    ) -> None:
+        await self._attitude_stream.publish(
+            AttitudeUpdate(yaw_deg=yaw_deg, pitch_deg=pitch_deg, roll_deg=roll_deg)
+        )
 
     async def publish_health(
         self,

@@ -7,9 +7,11 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 
 from uav_mcp_server.types import (
+    AttitudeUpdate,
     BatteryUpdate,
     HealthUpdate,
     MissionWaypoint,
+    OrbitYawBehavior,
     PositionUpdate,
 )
 
@@ -37,9 +39,11 @@ class LocalSimulationBackend:
     connected_to: str | None = None
     takeoff_altitude_m: float = 10.0
     goto_calls: list[tuple[float, float, float, float]] = field(default_factory=list)
+    orbit_calls: list[tuple[float, float, float, float, float, str]] = field(default_factory=list)
     uploaded_missions: list[list[MissionWaypoint]] = field(default_factory=list)
     started_missions: int = 0
     _position_stream: _AsyncStream = field(default_factory=_AsyncStream)
+    _attitude_stream: _AsyncStream = field(default_factory=_AsyncStream)
     _battery_stream: _AsyncStream = field(default_factory=_AsyncStream)
     _health_stream: _AsyncStream = field(default_factory=_AsyncStream)
     _flight_mode_stream: _AsyncStream = field(default_factory=_AsyncStream)
@@ -53,6 +57,9 @@ class LocalSimulationBackend:
     _longitude_deg: float = field(init=False)
     _absolute_altitude_m: float = field(init=False)
     _relative_altitude_m: float = 0.0
+    _yaw_deg: float = 0.0
+    _pitch_deg: float = 0.0
+    _roll_deg: float = 0.0
 
     def __post_init__(self) -> None:
         self._latitude_deg = self.home_latitude_deg
@@ -138,6 +145,37 @@ class LocalSimulationBackend:
         await self._flight_mode_stream.publish("GOTO")
         await self._position_stream.publish(self._position())
 
+    async def orbit(
+        self,
+        latitude_deg: float,
+        longitude_deg: float,
+        absolute_altitude_m: float,
+        radius_m: float,
+        velocity_m_s: float,
+        yaw_behavior: OrbitYawBehavior,
+    ) -> None:
+        self._ensure_connected()
+        self.orbit_calls.append(
+            (
+                latitude_deg,
+                longitude_deg,
+                absolute_altitude_m,
+                radius_m,
+                velocity_m_s,
+                yaw_behavior.value,
+            )
+        )
+        self._armed = True
+        self._in_air = True
+        self._latitude_deg = latitude_deg
+        self._longitude_deg = longitude_deg
+        self._absolute_altitude_m = absolute_altitude_m
+        self._relative_altitude_m = absolute_altitude_m - self.home_absolute_altitude_m
+        await self._armed_stream.publish(True)
+        await self._in_air_stream.publish(True)
+        await self._flight_mode_stream.publish("ORBIT")
+        await self._position_stream.publish(self._position())
+
     async def upload_mission(self, waypoints: list[MissionWaypoint]) -> None:
         self._ensure_connected()
         self.uploaded_missions.append(waypoints)
@@ -162,6 +200,9 @@ class LocalSimulationBackend:
 
     def position_updates(self) -> AsyncIterator[PositionUpdate]:
         return self._position_stream.iterate()  # type: ignore[return-value]
+
+    def attitude_updates(self) -> AsyncIterator[AttitudeUpdate]:
+        return self._attitude_stream.iterate()  # type: ignore[return-value]
 
     def battery_updates(self) -> AsyncIterator[BatteryUpdate]:
         return self._battery_stream.iterate()  # type: ignore[return-value]
@@ -193,9 +234,17 @@ class LocalSimulationBackend:
             relative_altitude_m=self._relative_altitude_m,
         )
 
+    def _attitude(self) -> AttitudeUpdate:
+        return AttitudeUpdate(
+            yaw_deg=self._yaw_deg,
+            pitch_deg=self._pitch_deg,
+            roll_deg=self._roll_deg,
+        )
+
     async def _publish_initial_state(self) -> None:
         await self._home_stream.publish(self.home_absolute_altitude_m)
         await self._position_stream.publish(self._position())
+        await self._attitude_stream.publish(self._attitude())
         await self._battery_stream.publish(BatteryUpdate(battery_percent=self.battery_percent))
         await self._health_stream.publish(
             HealthUpdate(

@@ -37,6 +37,14 @@ class ErrorCode(StrEnum):
     INVALID_PARAMS = "invalid_params"
 
 
+class OrbitYawBehavior(StrEnum):
+    HOLD_FRONT_TO_CIRCLE_CENTER = "hold_front_to_circle_center"
+    HOLD_FRONT_TANGENT_TO_CIRCLE = "hold_front_tangent_to_circle"
+    RC_CONTROLLED = "rc_controlled"
+    UNCONTROLLED = "uncontrolled"
+    HOLD_INITIAL_HEADING = "hold_initial_heading"
+
+
 class CommandResult(BaseModel):
     success: bool
     message: str
@@ -66,6 +74,9 @@ class TelemetrySnapshot(BaseModel):
     longitude_deg: float | None = None
     absolute_altitude_m: float | None = None
     relative_altitude_m: float | None = None
+    yaw_deg: float | None = None
+    pitch_deg: float | None = None
+    roll_deg: float | None = None
     battery_percent: float | None = None
     flight_mode: str | None = None
     home_absolute_altitude_m: float | None = None
@@ -107,6 +118,12 @@ class HealthUpdate(BaseModel):
     is_gyrometer_calibration_ok: bool = False
     is_accelerometer_calibration_ok: bool = False
     gps_satellites: int | None = Field(default=None, ge=0)
+
+
+class AttitudeUpdate(BaseModel):
+    yaw_deg: float
+    pitch_deg: float
+    roll_deg: float
 
 
 class MissionWaypoint(BaseModel):

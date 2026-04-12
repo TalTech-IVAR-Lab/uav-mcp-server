@@ -4,6 +4,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+SIM_CLASSIC_WORLD_DIR="${SIM_CLASSIC_WORLD_DIR:-$REPO_ROOT/sim/gazebo-classic/worlds}"
 RUN_DIR="${RUN_DIR:-$REPO_ROOT/.run}"
 LOG_DIR="${LOG_DIR:-$RUN_DIR/logs}"
 HOST="${HOST:-127.0.0.1}"
@@ -164,6 +165,13 @@ ensure_no_orphaned_simulator_processes() {
     exit 1
   fi
 
+  if [ "$SITL_RUNTIME" = "classic" ] \
+    && pgrep -f "$SIM_CLASSIC_WORLD_DIR/" >/dev/null 2>&1; then
+    echo "A repo-local Gazebo Classic world process is still running." >&2
+    echo "Run 'scripts/stop_live_stack.sh --force' before relaunching." >&2
+    exit 1
+  fi
+
   if [ "$SITL_RUNTIME" = "harmonic" ] \
     && pgrep -f "$PX4_DIR/Tools/simulation/gz/" >/dev/null 2>&1; then
     echo "A repo-scoped Gazebo Harmonic simulator process is still running." >&2
@@ -183,6 +191,7 @@ record_sitl_runtime_pids() {
     pgrep -f "$PX4_DIR/build/px4_sitl_default/bin/px4" || true
     if [ "$SITL_RUNTIME" = "classic" ]; then
       pgrep -f "$PX4_DIR/Tools/simulation/gazebo-classic/sitl_gazebo-classic" || true
+      pgrep -f "$SIM_CLASSIC_WORLD_DIR/" || true
     fi
     if [ "$SITL_RUNTIME" = "harmonic" ]; then
       pgrep -f "$PX4_DIR/Tools/simulation/gz/" || true

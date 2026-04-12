@@ -2,7 +2,7 @@
 
 This repository contains a simulation-first UAV control middleware for a thesis project built around the Model Context Protocol (MCP). The target system connects an AI agent to a PX4-based UAV running in Software-In-The-Loop (SITL), with a safety layer between the MCP tool surface and the flight controller.
 
-The current implementation covers the core UAV control path and includes a thin operator dashboard for real-time telemetry and manual command execution. Camera, POI, and voice control remain stretch scope.
+The current implementation covers the core UAV control path and includes an operator dashboard for real-time telemetry, manual command execution, live camera targeting, map tracking, and selection-driven orbit and approach workflows.
 
 ## Planned stack
 
@@ -78,7 +78,7 @@ For the best live launch path on a workstation with PX4 already checked out next
 scripts/launch_live_stack.sh
 ```
 
-The launcher starts PX4 SITL headless, picks `gz_x500` when Gazebo Harmonic is available, falls back to `gazebo-classic` otherwise, aligns the SITL home position with the configured geofence, starts the HTTP MCP server, and runs a smoke check before returning.
+The launcher starts PX4 SITL headless, picks `gz_x500` when Gazebo Harmonic is available, falls back to `gazebo-classic` otherwise, aligns the SITL home position with the configured geofence, defaults the Classic path to the repo-local CERN Science Gateway world, starts the HTTP MCP server, and runs a smoke check before returning.
 
 The supported explicit `PX4_MODEL` values for the launcher are `gz_x500` and `gazebo-classic`. If you request a model that is not supported on the current host, the launcher fails fast instead of silently falling back.
 
@@ -115,6 +115,10 @@ When the server runs in HTTP mode, a thin operator dashboard is available at `/d
 
 - Real-time telemetry via Server-Sent Events (SSE)
 - Manual command execution through the same safety layer as MCP tools
+- Live camera stream with click-and-drag target projection
+- Orbit and approach actions driven from the selected visual target
+- Live map with breadcrumb trail, geofence, home marker, and target marker
+- Browser voice shortcuts for common flight actions
 - Event log with command results and safety rejections
 
 The dashboard loads as a single HTML page with no external build system or CDN dependencies. QGroundControl can stay connected while the dashboard is in use.

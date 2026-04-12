@@ -7,7 +7,7 @@ from uav_mcp_server.config import Settings
 from uav_mcp_server.drone import DroneController, MavsdkBackend
 from uav_mcp_server.navigation import relative_to_absolute_altitude_m
 from uav_mcp_server.telemetry import TelemetryManager
-from uav_mcp_server.types import DroneState, ErrorCode, WaypointInput
+from uav_mcp_server.types import DroneState, ErrorCode, OrbitYawBehavior, WaypointInput
 
 
 class DelayedArmTelemetryBackend(FakeDroneBackend):
@@ -71,11 +71,36 @@ async def test_controller_translates_relative_move_to_goto_location() -> None:
 
     assert result.success is True
     latitude_deg, longitude_deg, absolute_altitude_m, _ = backend.goto_calls[-1]
-    assert latitude_deg != 59.3948
-    assert longitude_deg != 24.6614
+    assert latitude_deg != Settings().geofence_center_lat
+    assert longitude_deg != Settings().geofence_center_lon
     assert absolute_altitude_m == relative_to_absolute_altitude_m(140.0, 30.0)
 
     await controller.telemetry_manager.stop()
+
+
+@pytest.mark.asyncio
+async def test_controller_dispatches_orbit_to_backend() -> None:
+    backend = FakeDroneBackend()
+    controller = DroneController(Settings(), backend, TelemetryManager())
+
+    result = await controller.orbit(
+        latitude_deg=59.3950,
+        longitude_deg=24.6620,
+        absolute_altitude_m=152.0,
+        radius_m=12.0,
+        velocity_m_s=3.0,
+        yaw_behavior=OrbitYawBehavior.HOLD_FRONT_TO_CIRCLE_CENTER,
+    )
+
+    assert result.success is True
+    assert backend.orbit_calls[-1] == (
+        59.3950,
+        24.6620,
+        152.0,
+        12.0,
+        3.0,
+        OrbitYawBehavior.HOLD_FRONT_TO_CIRCLE_CENTER.value,
+    )
 
 
 @pytest.mark.asyncio

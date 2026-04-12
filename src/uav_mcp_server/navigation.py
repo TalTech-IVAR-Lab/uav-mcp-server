@@ -52,6 +52,23 @@ def offset_coordinate(
     return degrees(target_latitude), degrees(target_longitude)
 
 
+def coordinate_offset_m(
+    origin_latitude_deg: float,
+    origin_longitude_deg: float,
+    target_latitude_deg: float,
+    target_longitude_deg: float,
+) -> tuple[float, float]:
+    origin_latitude_rad = radians(origin_latitude_deg)
+    target_latitude_rad = radians(target_latitude_deg)
+    delta_latitude_rad = target_latitude_rad - origin_latitude_rad
+    delta_longitude_rad = radians(target_longitude_deg - origin_longitude_deg)
+    mean_latitude_rad = (origin_latitude_rad + target_latitude_rad) / 2.0
+
+    north_m = delta_latitude_rad * EARTH_RADIUS_M
+    east_m = delta_longitude_rad * EARTH_RADIUS_M * cos(mean_latitude_rad)
+    return north_m, east_m
+
+
 def relative_to_absolute_altitude_m(
     home_absolute_altitude_m: float,
     relative_altitude_m: float,

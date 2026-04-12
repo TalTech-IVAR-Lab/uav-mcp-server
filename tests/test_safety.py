@@ -2,6 +2,8 @@ from uav_mcp_server.config import Settings
 from uav_mcp_server.safety import SafetyValidator
 from uav_mcp_server.types import DroneState, ErrorCode, TelemetrySnapshot, WaypointInput
 
+DEFAULT_SETTINGS = Settings()
+
 
 def _ready_snapshot(**overrides: object) -> TelemetrySnapshot:
     values = {
@@ -12,8 +14,8 @@ def _ready_snapshot(**overrides: object) -> TelemetrySnapshot:
         "is_home_position_ok": True,
         "is_gyrometer_calibration_ok": True,
         "is_accelerometer_calibration_ok": True,
-        "latitude_deg": 59.3948,
-        "longitude_deg": 24.6614,
+        "latitude_deg": DEFAULT_SETTINGS.geofence_center_lat,
+        "longitude_deg": DEFAULT_SETTINGS.geofence_center_lon,
         "absolute_altitude_m": 150.0,
         "relative_altitude_m": 10.0,
         "home_absolute_altitude_m": 140.0,
@@ -142,12 +144,71 @@ def test_mission_checks_speed_and_geofence() -> None:
         "run_mission",
         snapshot,
         waypoints=[
-            WaypointInput(latitude_deg=59.3948, longitude_deg=24.6614, altitude_m=20.0, speed_m_s=20.0)
+            WaypointInput(
+                latitude_deg=DEFAULT_SETTINGS.geofence_center_lat,
+                longitude_deg=DEFAULT_SETTINGS.geofence_center_lon,
+                altitude_m=20.0,
+                speed_m_s=20.0,
+            )
         ],
     )
 
     assert violation is not None
     assert violation.error_code is ErrorCode.INVALID_PARAMS
+
+
+def test_orbit_rejects_radius_outside_bounds() -> None:
+    validator = SafetyValidator(Settings(min_orbit_radius_m=10.0, max_orbit_radius_m=50.0))
+    snapshot = _ready_snapshot(state=DroneState.AIRBORNE)
+
+    violation = validator.validate(
+        "orbit",
+        snapshot,
+        latitude_deg=DEFAULT_SETTINGS.geofence_center_lat,
+        longitude_deg=DEFAULT_SETTINGS.geofence_center_lon,
+        absolute_altitude_m=150.0,
+        radius_m=5.0,
+        velocity_m_s=3.0,
+    )
+
+    assert violation is not None
+    assert violation.error_code is ErrorCode.INVALID_PARAMS
+
+
+def test_orbit_rejects_speed_above_maximum() -> None:
+    validator = SafetyValidator(Settings(max_speed_m_s=4.0))
+    snapshot = _ready_snapshot(state=DroneState.AIRBORNE)
+
+    violation = validator.validate(
+        "orbit",
+        snapshot,
+        latitude_deg=DEFAULT_SETTINGS.geofence_center_lat,
+        longitude_deg=DEFAULT_SETTINGS.geofence_center_lon,
+        absolute_altitude_m=150.0,
+        radius_m=12.0,
+        velocity_m_s=6.0,
+    )
+
+    assert violation is not None
+    assert violation.error_code is ErrorCode.INVALID_PARAMS
+
+
+def test_orbit_rejects_path_that_exits_geofence() -> None:
+    validator = SafetyValidator(Settings(geofence_radius_m=40.0))
+    snapshot = _ready_snapshot(state=DroneState.AIRBORNE)
+
+    violation = validator.validate(
+        "orbit",
+        snapshot,
+        latitude_deg=DEFAULT_SETTINGS.geofence_center_lat + 0.0002,
+        longitude_deg=DEFAULT_SETTINGS.geofence_center_lon,
+        absolute_altitude_m=150.0,
+        radius_m=25.0,
+        velocity_m_s=3.0,
+    )
+
+    assert violation is not None
+    assert violation.error_code is ErrorCode.GEOFENCE_VIOLATION
 
 
 def test_fault_state_allows_reconnect() -> None:

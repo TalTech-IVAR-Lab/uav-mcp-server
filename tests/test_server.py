@@ -2,7 +2,7 @@ import asyncio
 
 import pytest
 
-from tests.fakes import FakeDroneBackend
+from tests.fakes import DEFAULT_TEST_LATITUDE_DEG, FakeDroneBackend
 from uav_mcp_server.config import Settings
 from uav_mcp_server.server import build_services, create_server
 from uav_mcp_server.types import ErrorCode, TelemetrySnapshot, WaypointInput
@@ -30,6 +30,7 @@ async def test_server_registers_expected_tools_and_resources() -> None:
         "hold",
         "rtl",
         "goto_relative",
+        "orbit",
         "run_mission",
         "get_status",
         "get_telemetry",
@@ -77,7 +78,7 @@ async def test_get_telemetry_tool_returns_snapshot() -> None:
     snapshot = TelemetrySnapshot.model_validate(result)
 
     assert snapshot.connected is True
-    assert snapshot.latitude_deg == 59.3948
+    assert snapshot.latitude_deg == DEFAULT_TEST_LATITUDE_DEG
 
 
 @pytest.mark.asyncio
@@ -105,6 +106,42 @@ async def test_run_mission_tool_rejects_out_of_geofence_waypoint() -> None:
 
     assert result["success"] is False
     assert result["error_code"] == ErrorCode.GEOFENCE_VIOLATION.value
+
+
+@pytest.mark.asyncio
+async def test_orbit_tool_dispatches_to_backend() -> None:
+    server, backend = _server_with_fake_backend()
+
+    await server.call_tool("connect", {})
+    await backend.publish_position(absolute_altitude_m=150.0, relative_altitude_m=10.0)
+    await backend.publish_attitude(yaw_deg=90.0, pitch_deg=-5.0, roll_deg=2.0)
+    await backend.publish_battery()
+    await backend.publish_health()
+    await backend.publish_home()
+    await backend.publish_flight_mode("HOLD")
+    await backend.publish_armed(True)
+    await backend.publish_in_air(True)
+    await asyncio.sleep(0)
+
+    _, result = await server.call_tool(
+        "orbit",
+        {
+            "latitude_deg": Settings().geofence_center_lat + 0.0001,
+            "longitude_deg": Settings().geofence_center_lon + 0.0001,
+            "absolute_altitude_m": 150.0,
+            "radius_m": 12.0,
+            "velocity_m_s": 3.0,
+        },
+    )
+
+    assert result["success"] is True
+    assert backend.orbit_calls[-1][:5] == (
+        Settings().geofence_center_lat + 0.0001,
+        Settings().geofence_center_lon + 0.0001,
+        150.0,
+        12.0,
+        3.0,
+    )
 
 
 @pytest.mark.asyncio

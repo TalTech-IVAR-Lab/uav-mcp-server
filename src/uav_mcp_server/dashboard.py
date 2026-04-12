@@ -34,6 +34,7 @@ DASHBOARD_COMMANDS = frozenset({
     "hold",
     "rtl",
     "goto_relative",
+    "orbit",
     "get_status",
     "get_telemetry",
 })
@@ -110,6 +111,11 @@ class DashboardState:
 
     get_snapshot: Any  # Callable[[], TelemetrySnapshot]
     validate_and_run: Any  # async (str, dict) -> CommandResult
+    get_config: Any | None = None  # Callable[[], dict[str, Any]]
+    project_pixel: Any | None = None  # async (dict[str, Any]) -> dict[str, Any]
+    select_and_orbit: Any | None = None  # async (dict[str, Any]) -> CommandResult
+    select_and_approach: Any | None = None  # async (dict[str, Any]) -> CommandResult
+    camera_streamer: Any | None = None
     event_log: EventLog = field(default_factory=EventLog)
 
 
@@ -124,6 +130,13 @@ def register_dashboard_routes(mcp: Any, state: DashboardState) -> None:
     async def dashboard_api_status(request: Request) -> Response:
         snapshot = state.get_snapshot()
         return JSONResponse(_snapshot_dict(snapshot))
+
+    @mcp.custom_route("/dashboard/api/config", methods=["GET"])
+    async def dashboard_api_config(request: Request) -> Response:
+        del request
+        if state.get_config is None:
+            return JSONResponse({}, status_code=200)
+        return JSONResponse(state.get_config())
 
     @mcp.custom_route("/dashboard/api/telemetry", methods=["GET"])
     async def dashboard_api_telemetry(request: Request) -> Response:
@@ -174,6 +187,72 @@ def register_dashboard_routes(mcp: Any, state: DashboardState) -> None:
 
         return JSONResponse(result.model_dump(mode="json"))
 
+    @mcp.custom_route("/dashboard/api/project_pixel", methods=["POST"])
+    async def dashboard_api_project_pixel(request: Request) -> Response:
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+
+        if state.project_pixel is None:
+            return JSONResponse(
+                CommandResult.fail(
+                    "Pixel projection is not configured.",
+                    ErrorCode.NOT_IMPLEMENTED,
+                ).model_dump(mode="json"),
+                status_code=501,
+            )
+        try:
+            projected = await state.project_pixel(body)
+        except ValueError as exc:
+            return JSONResponse(
+                CommandResult.fail(str(exc), ErrorCode.INVALID_PARAMS).model_dump(mode="json"),
+                status_code=400,
+            )
+        except RuntimeError as exc:
+            return JSONResponse(
+                CommandResult.fail(str(exc), ErrorCode.PREFLIGHT_FAILED).model_dump(mode="json"),
+                status_code=409,
+            )
+
+        return JSONResponse(projected)
+
+    @mcp.custom_route("/dashboard/api/select_and_orbit", methods=["POST"])
+    async def dashboard_api_select_and_orbit(request: Request) -> Response:
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+
+        if state.select_and_orbit is None:
+            return JSONResponse(
+                CommandResult.fail(
+                    "Target-selection orbit flow is not configured.",
+                    ErrorCode.NOT_IMPLEMENTED,
+                ).model_dump(mode="json"),
+                status_code=501,
+            )
+        result = await state.select_and_orbit(body)
+        return JSONResponse(result.model_dump(mode="json"))
+
+    @mcp.custom_route("/dashboard/api/select_and_approach", methods=["POST"])
+    async def dashboard_api_select_and_approach(request: Request) -> Response:
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+
+        if state.select_and_approach is None:
+            return JSONResponse(
+                CommandResult.fail(
+                    "Target-selection approach flow is not configured.",
+                    ErrorCode.NOT_IMPLEMENTED,
+                ).model_dump(mode="json"),
+                status_code=501,
+            )
+        result = await state.select_and_approach(body)
+        return JSONResponse(result.model_dump(mode="json"))
+
     @mcp.custom_route("/dashboard/api/telemetry/stream", methods=["GET"])
     async def dashboard_api_telemetry_stream(request: Request) -> Response:
         async def event_generator():
@@ -191,6 +270,40 @@ def register_dashboard_routes(mcp: Any, state: DashboardState) -> None:
         return StreamingResponse(
             event_generator(),
             media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            },
+        )
+
+    @mcp.custom_route("/dashboard/api/camera/stream", methods=["GET"])
+    async def dashboard_api_camera_stream(request: Request) -> Response:
+        streamer = state.camera_streamer
+        if streamer is None or not streamer.is_available():
+            camera_status = (
+                streamer.status().to_dict()
+                if streamer is not None
+                else {"enabled": False, "available": False, "reason": "Camera streamer is absent."}
+            )
+            return JSONResponse(
+                CommandResult.fail(
+                    "Camera stream is unavailable.",
+                    ErrorCode.NOT_IMPLEMENTED,
+                    data={"camera": camera_status},
+                ).model_dump(mode="json"),
+                status_code=503,
+            )
+
+        async def event_generator():
+            async for chunk in streamer.stream_mjpeg():
+                if await request.is_disconnected():
+                    break
+                yield chunk
+
+        return StreamingResponse(
+            event_generator(),
+            media_type=f"multipart/x-mixed-replace; boundary={streamer.boundary}",
             headers={
                 "Cache-Control": "no-cache",
                 "Connection": "keep-alive",

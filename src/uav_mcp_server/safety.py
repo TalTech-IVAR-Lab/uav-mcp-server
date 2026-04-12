@@ -17,7 +17,15 @@ ALLOWED_COMMANDS_BY_STATE: dict[DroneState, set[str]] = {
     DroneState.CONNECTED: {"arm", *READ_ONLY_COMMANDS},
     DroneState.READY: {"arm", *READ_ONLY_COMMANDS},
     DroneState.ARMED: {"disarm", "takeoff", *READ_ONLY_COMMANDS},
-    DroneState.AIRBORNE: {"land", "hold", "rtl", "goto_relative", "run_mission", *READ_ONLY_COMMANDS},
+    DroneState.AIRBORNE: {
+        "land",
+        "hold",
+        "rtl",
+        "goto_relative",
+        "orbit",
+        "run_mission",
+        *READ_ONLY_COMMANDS,
+    },
     DroneState.LANDING: {"land", "hold", "rtl", *READ_ONLY_COMMANDS},
     DroneState.FAULT: {"connect", *READ_ONLY_COMMANDS},
 }
@@ -38,6 +46,11 @@ class SafetyValidator:
         altitude_m: float | None = None,
         north_m: float | None = None,
         east_m: float | None = None,
+        latitude_deg: float | None = None,
+        longitude_deg: float | None = None,
+        absolute_altitude_m: float | None = None,
+        radius_m: float | None = None,
+        velocity_m_s: float | None = None,
         waypoints: list[WaypointInput] | None = None,
     ) -> CommandResult | None:
         state_violation = self._validate_state(command_name, telemetry.state)
@@ -54,6 +67,15 @@ class SafetyValidator:
                 north_m=north_m,
                 east_m=east_m,
                 altitude_m=altitude_m,
+            )
+        elif command_name == "orbit":
+            violation = self._validate_orbit(
+                telemetry,
+                latitude_deg=latitude_deg,
+                longitude_deg=longitude_deg,
+                absolute_altitude_m=absolute_altitude_m,
+                radius_m=radius_m,
+                velocity_m_s=velocity_m_s,
             )
         elif command_name == "run_mission":
             violation = self._validate_mission(waypoints)
@@ -255,6 +277,85 @@ class SafetyValidator:
             )
             if geofence_violation is not None:
                 return geofence_violation
+
+        return None
+
+    def _validate_orbit(
+        self,
+        telemetry: TelemetrySnapshot,
+        *,
+        latitude_deg: float | None,
+        longitude_deg: float | None,
+        absolute_altitude_m: float | None,
+        radius_m: float | None,
+        velocity_m_s: float | None,
+    ) -> CommandResult | None:
+        if (
+            latitude_deg is None
+            or longitude_deg is None
+            or absolute_altitude_m is None
+            or radius_m is None
+            or velocity_m_s is None
+        ):
+            return CommandResult.fail(
+                "Orbit requires latitude, longitude, altitude, radius, and velocity parameters.",
+                ErrorCode.INVALID_PARAMS,
+            )
+
+        if not self._settings.min_orbit_radius_m <= radius_m <= self._settings.max_orbit_radius_m:
+            return CommandResult.fail(
+                "Orbit radius is outside the configured bounds.",
+                ErrorCode.INVALID_PARAMS,
+                data={
+                    "radius_m": radius_m,
+                    "min_orbit_radius_m": self._settings.min_orbit_radius_m,
+                    "max_orbit_radius_m": self._settings.max_orbit_radius_m,
+                },
+            )
+
+        if velocity_m_s > self._settings.max_speed_m_s:
+            return CommandResult.fail(
+                "Orbit velocity exceeds the configured maximum.",
+                ErrorCode.INVALID_PARAMS,
+                data={
+                    "velocity_m_s": velocity_m_s,
+                    "max_speed_m_s": self._settings.max_speed_m_s,
+                },
+            )
+
+        home_absolute_altitude_m = telemetry.inferred_home_absolute_altitude_m()
+        if home_absolute_altitude_m is None:
+            return CommandResult.fail(
+                "Home altitude is unavailable; orbit altitude cannot be validated safely.",
+                ErrorCode.PREFLIGHT_FAILED,
+            )
+
+        altitude_violation = self._validate_takeoff(absolute_altitude_m - home_absolute_altitude_m)
+        if altitude_violation is not None:
+            altitude_violation.data = {
+                **(altitude_violation.data or {}),
+                "absolute_altitude_m": absolute_altitude_m,
+            }
+            return altitude_violation
+
+        distance_m = haversine_distance_m(
+            self._settings.geofence_center_lat,
+            self._settings.geofence_center_lon,
+            latitude_deg,
+            longitude_deg,
+        )
+        if distance_m + radius_m > self._settings.geofence_radius_m:
+            return CommandResult.fail(
+                "Orbit path would extend outside the configured geofence.",
+                ErrorCode.GEOFENCE_VIOLATION,
+                data={
+                    "target_latitude_deg": latitude_deg,
+                    "target_longitude_deg": longitude_deg,
+                    "distance_m": round(distance_m, 2),
+                    "radius_m": radius_m,
+                    "geofence_radius_m": self._settings.geofence_radius_m,
+                },
+            )
 
         return None
 

@@ -15,12 +15,14 @@ from uav_mcp_server.mission import MissionManager
 from uav_mcp_server.navigation import offset_coordinate, relative_to_absolute_altitude_m
 from uav_mcp_server.telemetry import TelemetryBackend, TelemetryManager
 from uav_mcp_server.types import (
+    AttitudeUpdate,
     BatteryUpdate,
     CommandResult,
     DroneState,
     ErrorCode,
     HealthUpdate,
     MissionWaypoint,
+    OrbitYawBehavior,
     PositionUpdate,
     TelemetrySnapshot,
     WaypointInput,
@@ -50,6 +52,16 @@ class DroneBackend(TelemetryBackend, Protocol):
         longitude_deg: float,
         absolute_altitude_m: float,
         yaw_deg: float = 0.0,
+    ) -> None: ...
+
+    async def orbit(
+        self,
+        latitude_deg: float,
+        longitude_deg: float,
+        absolute_altitude_m: float,
+        radius_m: float,
+        velocity_m_s: float,
+        yaw_behavior: OrbitYawBehavior,
     ) -> None: ...
 
     async def upload_mission(self, waypoints: list[MissionWaypoint]) -> None: ...
@@ -111,6 +123,29 @@ class MavsdkBackend:
             yaw_deg,
         )
 
+    async def orbit(
+        self,
+        latitude_deg: float,
+        longitude_deg: float,
+        absolute_altitude_m: float,
+        radius_m: float,
+        velocity_m_s: float,
+        yaw_behavior: OrbitYawBehavior,
+    ) -> None:
+        from mavsdk.action import OrbitYawBehavior as MavsdkOrbitYawBehavior
+
+        await self._system.action.do_orbit(
+            radius_m=radius_m,
+            velocity_ms=velocity_m_s,
+            yaw_behavior=getattr(
+                MavsdkOrbitYawBehavior,
+                self._orbit_yaw_behavior_name(yaw_behavior),
+            ),
+            latitude_deg=latitude_deg,
+            longitude_deg=longitude_deg,
+            absolute_altitude_m=absolute_altitude_m,
+        )
+
     async def upload_mission(self, waypoints: list[MissionWaypoint]) -> None:
         from mavsdk.mission import MissionItem, MissionPlan
 
@@ -152,6 +187,14 @@ class MavsdkBackend:
         async for battery in self._system.telemetry.battery():
             yield BatteryUpdate(
                 battery_percent=self._normalize_battery_percent(battery.remaining_percent)
+            )
+
+    async def attitude_updates(self) -> AsyncIterator[AttitudeUpdate]:
+        async for attitude in self._system.telemetry.attitude_euler():
+            yield AttitudeUpdate(
+                yaw_deg=attitude.yaw_deg,
+                pitch_deg=attitude.pitch_deg,
+                roll_deg=attitude.roll_deg,
             )
 
     async def health_updates(self) -> AsyncIterator[HealthUpdate]:
@@ -202,6 +245,15 @@ class MavsdkBackend:
         if remaining_percent <= 1.0:
             return round(remaining_percent * 100, 2)
         return round(min(remaining_percent, 100.0), 2)
+
+    def _orbit_yaw_behavior_name(self, yaw_behavior: OrbitYawBehavior) -> str:
+        return {
+            OrbitYawBehavior.HOLD_FRONT_TO_CIRCLE_CENTER: "HOLD_FRONT_TO_CIRCLE_CENTER",
+            OrbitYawBehavior.HOLD_FRONT_TANGENT_TO_CIRCLE: "HOLD_FRONT_TANGENT_TO_CIRCLE",
+            OrbitYawBehavior.RC_CONTROLLED: "RC_CONTROLLED",
+            OrbitYawBehavior.UNCONTROLLED: "UNCONTROLLED",
+            OrbitYawBehavior.HOLD_INITIAL_HEADING: "HOLD_INITIAL_HEADING",
+        }[yaw_behavior]
 
 
 class DroneController:
@@ -340,6 +392,36 @@ class DroneController:
                 "target_latitude_deg": target_latitude_deg,
                 "target_longitude_deg": target_longitude_deg,
             },
+        )
+
+    async def orbit(
+        self,
+        latitude_deg: float,
+        longitude_deg: float,
+        absolute_altitude_m: float,
+        radius_m: float,
+        velocity_m_s: float,
+        yaw_behavior: OrbitYawBehavior = OrbitYawBehavior.HOLD_FRONT_TO_CIRCLE_CENTER,
+    ) -> CommandResult:
+        return await self._run_backend_action(
+            lambda: self._backend.orbit(
+                latitude_deg,
+                longitude_deg,
+                absolute_altitude_m,
+                radius_m,
+                velocity_m_s,
+                yaw_behavior,
+            ),
+            "Orbit command accepted.",
+            data={
+                "target_latitude_deg": latitude_deg,
+                "target_longitude_deg": longitude_deg,
+                "absolute_altitude_m": absolute_altitude_m,
+                "radius_m": radius_m,
+                "velocity_m_s": velocity_m_s,
+                "yaw_behavior": yaw_behavior.value,
+            },
+            on_success=lambda: self._telemetry.update(flight_mode="ORBIT"),
         )
 
     async def run_mission(self, waypoints: list[WaypointInput]) -> CommandResult:
