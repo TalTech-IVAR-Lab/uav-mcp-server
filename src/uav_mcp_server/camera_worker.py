@@ -10,18 +10,19 @@ import sys
 import time
 from pathlib import Path
 
-import cv2
-import numpy as np
-
 logger = logging.getLogger(__name__)
 
 
 class RosCameraWorker:
     def __init__(self, topic: str) -> None:
+        import cv2
+        import numpy as np
         import rclpy
         from rclpy.executors import SingleThreadedExecutor
         from sensor_msgs.msg import Image
 
+        self._cv2 = cv2
+        self._np = np
         self._rclpy = rclpy
         self._executor_cls = SingleThreadedExecutor
         self._image_type = Image
@@ -73,8 +74,8 @@ class RosCameraWorker:
         except Exception:
             pass
 
-    def _write_jpeg(self, frame: np.ndarray) -> None:
-        ok, encoded = cv2.imencode(".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), 85])
+    def _write_jpeg(self, frame) -> None:
+        ok, encoded = self._cv2.imencode(".jpg", frame, [int(self._cv2.IMWRITE_JPEG_QUALITY), 85])
         if not ok:
             raise RuntimeError("OpenCV failed to encode camera frame.")
         payload = encoded.tobytes()
@@ -91,7 +92,7 @@ class RosCameraWorker:
         except Exception as exc:
             logger.debug("Dropped ROS2 camera frame: %s", exc)
 
-    def _message_to_bgr(self, message) -> np.ndarray:
+    def _message_to_bgr(self, message):
         channels_by_encoding = {
             "rgb8": 3,
             "bgr8": 3,
@@ -103,7 +104,7 @@ class RosCameraWorker:
             raise ValueError(f"Unsupported camera encoding: {message.encoding}")
 
         channels = channels_by_encoding[message.encoding]
-        array = np.frombuffer(message.data, dtype=np.uint8)
+        array = self._np.frombuffer(message.data, dtype=self._np.uint8)
         if channels == 1:
             image = array.reshape((message.height, message.step))[:, : message.width]
         else:
@@ -112,11 +113,11 @@ class RosCameraWorker:
             ]
 
         if message.encoding == "rgb8":
-            image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
+            image = self._cv2.cvtColor(image, self._cv2.COLOR_RGB2BGR)
         elif message.encoding == "rgba8":
-            image = cv2.cvtColor(image, cv2.COLOR_RGBA2BGR)
+            image = self._cv2.cvtColor(image, self._cv2.COLOR_RGBA2BGR)
         elif message.encoding == "bgra8":
-            image = cv2.cvtColor(image, cv2.COLOR_BGRA2BGR)
+            image = self._cv2.cvtColor(image, self._cv2.COLOR_BGRA2BGR)
 
         return image
 
@@ -138,17 +139,28 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def discover_gazebo_topic(suffix: str) -> str:
-    result = subprocess.run(
-        ["gz", "topic", "-l"],
-        capture_output=True,
-        text=True,
-        check=True,
-    )
-    candidates = [line.strip() for line in result.stdout.splitlines() if line.strip().endswith(suffix)]
-    if not candidates:
-        raise RuntimeError(f"No Gazebo topic found matching suffix {suffix!r}.")
-    return sorted(candidates)[0]
+def discover_gazebo_topic(suffix: str, *, timeout_s: float = 30.0, poll_interval_s: float = 2.0) -> str:
+    deadline = time.monotonic() + timeout_s
+    last_exc: Exception | None = None
+    while True:
+        try:
+            result = subprocess.run(
+                ["gz", "topic", "-l"],
+                capture_output=True,
+                text=True,
+                check=True,
+                timeout=5,
+            )
+            candidates = [line.strip() for line in result.stdout.splitlines() if line.strip().endswith(suffix)]
+            if candidates:
+                return sorted(candidates)[0]
+            last_exc = RuntimeError(f"No Gazebo topic found matching suffix {suffix!r}.")
+        except Exception as exc:
+            last_exc = exc
+        if time.monotonic() >= deadline:
+            raise last_exc or RuntimeError(f"No Gazebo topic found matching suffix {suffix!r} after {timeout_s}s.")
+        logger.info("Waiting for Gazebo topic matching %r (retrying in %.0fs)…", suffix, poll_interval_s)
+        time.sleep(poll_interval_s)
 
 
 def exec_gazebo_bridge(topic_suffix: str) -> None:

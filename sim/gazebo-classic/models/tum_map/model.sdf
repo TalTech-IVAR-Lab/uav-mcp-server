@@ -1,0 +1,28 @@
+<?xml version="1.0"?>
+<sdf version="1.6">
+  <model name="tum_map">
+    <static>true</static>
+    <!-- Mesh is already centred at world XY origin and Z=0 is the lowest terrain point.
+         No additional pose offset needed. -->
+    <pose>0 0 0 0 0 0</pose>
+
+    <link name="body">
+      <collision name="collision">
+        <geometry>
+          <mesh>
+            <uri>model://tum_map/meshes/tum_map.obj</uri>
+            <scale>1 1 1</scale>
+          </mesh>
+        </geometry>
+      </collision>
+      <visual name="visual">
+        <geometry>
+          <mesh>
+            <uri>model://tum_map/meshes/tum_map.obj</uri>
+            <scale>1 1 1</scale>
+          </mesh>
+        </geometry>
+      </visual>
+    </link>
+  </model>
+</sdf>

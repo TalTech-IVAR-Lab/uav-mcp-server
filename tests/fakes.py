@@ -13,8 +13,8 @@ from uav_mcp_server.types import (
     PositionUpdate,
 )
 
-DEFAULT_TEST_LATITUDE_DEG = 46.2331
-DEFAULT_TEST_LONGITUDE_DEG = 6.0556
+DEFAULT_TEST_LATITUDE_DEG = 59.3949741
+DEFAULT_TEST_LONGITUDE_DEG = 24.6676189
 
 
 class _AsyncStream:
@@ -35,6 +35,9 @@ class FakeDroneBackend:
     connected_to: str | None = None
     takeoff_altitude_m: float | None = None
     goto_calls: list[tuple[float, float, float, float]] = field(default_factory=list)
+    gimbal_pitch_calls: list[float] = field(default_factory=list)
+    gimbal_yaw_calls: list[float] = field(default_factory=list)
+    roi_calls: list[tuple[float, float, float]] = field(default_factory=list)
     orbit_calls: list[tuple[float, float, float, float, float, str]] = field(default_factory=list)
     uploaded_missions: list[list[MissionWaypoint]] = field(default_factory=list)
     started_missions: int = 0
@@ -114,6 +117,29 @@ class FakeDroneBackend:
                 yaw_behavior.value,
             )
         )
+
+    async def gimbal_pitch_relative(self, delta_deg: float) -> None:
+        self._raise_if_configured()
+        self.gimbal_pitch_calls.append(delta_deg)
+
+    def current_gimbal_pitch_deg(self) -> float:
+        return sum(self.gimbal_pitch_calls)
+
+    async def gimbal_yaw_relative(self, delta_deg: float) -> None:
+        self._raise_if_configured()
+        self.gimbal_yaw_calls.append(delta_deg)
+
+    def current_gimbal_yaw_deg(self) -> float:
+        return sum(self.gimbal_yaw_calls) % 360.0
+
+    async def set_roi_location(
+        self,
+        latitude_deg: float,
+        longitude_deg: float,
+        absolute_altitude_m: float,
+    ) -> None:
+        self._raise_if_configured()
+        self.roi_calls.append((latitude_deg, longitude_deg, absolute_altitude_m))
 
     async def upload_mission(self, waypoints: list[MissionWaypoint]) -> None:
         self._raise_if_configured()

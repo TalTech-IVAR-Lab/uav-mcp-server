@@ -165,8 +165,18 @@ The SITL launcher reads `GEOFENCE_CENTER_LAT` and `GEOFENCE_CENTER_LON` from `.e
 Current repo defaults target the CERN Science Gateway area:
 - `GEOFENCE_CENTER_LAT=46.2331`
 - `GEOFENCE_CENTER_LON=6.0556`
+- `SIM_CLASSIC_SPAWN_X_M=1.01`
+- `SIM_CLASSIC_SPAWN_Y_M=0.98`
+- `SIM_CLASSIC_SPAWN_Z_M=0.83`
+- `SIM_CLASSIC_SPAWN_YAW_RAD=0.6716839273`
 
 On Gazebo Classic hosts, the launcher also defaults `PX4_SITL_WORLD` to the repo-local CERN world at `sim/gazebo-classic/worlds/cern_science_gateway.world`.
+The Classic fallback also sets the default vehicle yaw so the drone faces the Science Gateway from the Esplanade takeoff point.
+
+Optional TalTech terrain profile:
+- generate `sim/gazebo-classic/worlds/taltech_campus.world` with `scripts/import_gazebo_terrain.py`
+- launch it with `scripts/launch_taltech_live_stack.sh`
+- that wrapper aligns the world selection, PX4 home coordinates, and classic spawn pose for the TalTech campus import
 
 ## 7. Launch the full live stack
 

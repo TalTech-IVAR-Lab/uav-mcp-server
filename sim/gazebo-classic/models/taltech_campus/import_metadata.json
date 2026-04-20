@@ -1,0 +1,18 @@
+{
+  "bounds": {
+    "east": 24.675,
+    "north": 59.3991,
+    "south": 59.3918,
+    "west": 24.6545
+  },
+  "generator_repo": "https://github.com/saiaravind19/gazebo_terrain_generator.git",
+  "include_buildings": true,
+  "launch_location": {
+    "latitude_deg": 59.3949741,
+    "longitude_deg": 24.6676189
+  },
+  "model_name": "taltech_campus",
+  "source_url": "http://ecn.t0.tiles.virtualearth.net/tiles/a{quad}.jpeg?g=129&mkt=en&stl=H",
+  "world_path": "sim/gazebo-classic/worlds/taltech_campus.world",
+  "zoom": 17
+}

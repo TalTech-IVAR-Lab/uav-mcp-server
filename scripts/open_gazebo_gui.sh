@@ -17,6 +17,7 @@ QT_QPA_PLATFORM_VALUE="${QT_QPA_PLATFORM_VALUE:-xcb}"
 GDK_BACKEND_VALUE="${GDK_BACKEND_VALUE:-x11}"
 GAZEBO_MASTER_URI_VALUE="${GAZEBO_MASTER_URI_VALUE:-http://127.0.0.1:11345}"
 GAZEBO_SETUP_SH_VALUE="${GAZEBO_SETUP_SH_VALUE:-}"
+DESKTOP_ENV_HELPER="$SCRIPT_DIR/resolve_desktop_session_env.py"
 
 prepend_path_entry() {
   local entry="$1"
@@ -90,6 +91,27 @@ resolve_gazebo_gui_env() {
   printf 'LD_LIBRARY_PATH=%s\n' "$(prepend_path_entry "$PX4_GAZEBO_BUILD_DIR" "${LD_LIBRARY_PATH:-}")"
 }
 
+resolve_desktop_gui_session() {
+  if [ -n "${DISPLAY:-}" ] || [ ! -f "$DESKTOP_ENV_HELPER" ]; then
+    return
+  fi
+
+  local python_bin="python3"
+  if ! command -v "$python_bin" >/dev/null 2>&1; then
+    return
+  fi
+
+  local discovered
+  if ! discovered="$("$python_bin" "$DESKTOP_ENV_HELPER" 2>/dev/null)"; then
+    return
+  fi
+
+  while IFS='=' read -r key value; do
+    [ -n "${key:-}" ] || continue
+    export "$key=$value"
+  done <<<"$discovered"
+}
+
 if [ -n "${LIBGL_ALWAYS_SOFTWARE_VALUE:-}" ]; then
   resolved_libgl_software="$LIBGL_ALWAYS_SOFTWARE_VALUE"
 else
@@ -123,6 +145,8 @@ main() {
     fi
     rm -f "$PID_FILE"
   fi
+
+  resolve_desktop_gui_session
 
   if [ -z "${DISPLAY:-}" ]; then
     echo "DISPLAY is not set. Start this from your desktop session, not a headless shell." >&2

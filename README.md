@@ -1,134 +1,294 @@
 # UAV MCP Server
 
-This repository contains a simulation-first UAV control middleware for a thesis project built around the Model Context Protocol (MCP). The target system connects an AI agent to a PX4-based UAV running in Software-In-The-Loop (SITL), with a safety layer between the MCP tool surface and the flight controller.
+This repository contains a simulation-first UAV control stack for a thesis project. It connects an AI client or operator dashboard to a PX4-based vehicle through a safety-gated Model Context Protocol (MCP) server.
 
-The current implementation covers the core UAV control path and includes an operator dashboard for real-time telemetry, manual command execution, live camera targeting, map tracking, and selection-driven orbit and approach workflows.
+The project is designed for two workflows:
 
-## Planned stack
+- live PX4 SITL with Gazebo for realistic flight testing
+- local backend mode for API, UI, and assistant-flow testing without PX4
 
-- Python 3.12
-- Official `mcp[cli]` SDK / FastMCP
-- MAVSDK-Python
-- PX4 SITL + Gazebo Harmonic
-- Pydantic v2
-- pytest + pytest-asyncio
+## Feature Overview
 
-## Repository layout
+- Safe MCP tool surface for connect, launch, movement, orbit, mission, hold, RTL, and telemetry queries
+- Safety layer for state gating, preflight checks, geofence enforcement, altitude and speed limits, and rate limiting
+- Operator dashboard with telemetry, event stream, live map, target management, manual controls, and camera targeting
+- Visual target workflows for approach and orbit around a selected map or camera target
+- Gimbal pitch control with forward-facing alignment and ROI-based target tracking during orbit workflows
+- AI copilot chat for planning and executing dashboard commands, with queued execution when multiple requests are sent
+- Local backend for fast testing without MAVSDK or PX4 SITL
+- Evaluation and benchmark scripts for latency, reliability, and safety runs
+
+## Repository Layout
 
 ```text
-docs/                  Project documentation intended for review
-evaluation/            Benchmark and evaluation scripts
-scripts/               Local helper scripts
+docs/                  Architecture, setup, demo, and evaluation notes
+evaluation/            Benchmark clients and result processing
+scripts/               Launch, smoke-test, and helper scripts
+sim/                   Gazebo Classic worlds and models
 src/uav_mcp_server/    Application package
-tests/                 Unit and integration tests
+tests/                 Unit and component tests
+tools/                 Native helpers such as the Gazebo camera bridge
 ```
 
-## Implemented core
+## Supported Host Profiles
 
-- shared domain models and environment-backed settings
-- navigation helpers for relative movement and geofence math
-- telemetry manager with cached snapshot state
-- testable drone control layer with a backend protocol and live MAVSDK adapter
-- mission planning with bounded waypoint inputs
-- safety validation for state, preflight checks, bounds, geofence, and rate limiting
-- FastMCP server exposing a safe tool surface and read-only resources
-- fast unit and component coverage for the core control path
+Preferred target:
 
-## Safe MCP tool surface
+- Ubuntu 24.04
+- Python 3.12
+- PX4 SITL with Gazebo Harmonic
 
-- `connect`
-- `arm`
-- `disarm`
-- `takeoff`
-- `land`
-- `hold`
-- `rtl`
-- `goto_relative`
-- `run_mission`
-- `get_status`
-- `get_telemetry`
+Validated fallback:
 
-## Current status
+- Ubuntu 22.04
+- Python 3.12
+- PX4 SITL with Gazebo Classic
 
-- Core control, safety, and MCP server layers are implemented.
-- Fast local verification is in place with unit and component tests.
-- A local `--backend local` mode is available for API-level testing without PX4 SITL or MAVSDK.
-- Live SITL is validated on this workspace through the repo-managed launch path.
-- The preferred deployment target remains Ubuntu 24.04 with Gazebo Harmonic, while Ubuntu 22.04 is currently supported through a Gazebo Classic fallback.
+The package is pinned to Python `>=3.12,<3.13`.
 
-## Quick start
+## Step-By-Step Setup On A New Machine
+
+### 1. Install base host packages
 
 ```bash
-python3.12 -m venv .venv
-. .venv/bin/activate
+sudo apt update
+sudo apt install -y git make cmake pkg-config protobuf-compiler curl
+```
+
+Install Python 3.12:
+
+```bash
+sudo apt install -y python3.12 python3.12-venv
+```
+
+If your distro does not ship `python3.12`, install a user-local copy with `uv`:
+
+```bash
+python3 -m pip install --user uv
+~/.local/bin/uv python install 3.12
+```
+
+For Gazebo Classic fallback hosts:
+
+```bash
+sudo apt install -y gazebo libgazebo-dev
+```
+
+### 2. Clone PX4 and this repository side by side
+
+The launch scripts assume this layout:
+
+```text
+<workspace>/
+  PX4-Autopilot/
+  taltech-uav-mcp-server/
+```
+
+Clone both repositories:
+
+```bash
+cd <workspace>
+git clone <your-repo-url> taltech-uav-mcp-server
+git clone --recursive --branch v1.16.0 https://github.com/PX4/PX4-Autopilot.git
+```
+
+If PX4 is already cloned without submodules:
+
+```bash
+cd <workspace>/PX4-Autopilot
+git submodule update --init --recursive
+```
+
+### 3. Create the Python environment
+
+Using system Python:
+
+```bash
+cd <workspace>/taltech-uav-mcp-server
+python3.12 -m venv .venv312
+. .venv312/bin/activate
+pip install --upgrade pip
+```
+
+Using `uv` Python:
+
+```bash
+cd <workspace>/taltech-uav-mcp-server
+~/.local/bin/uv venv --seed --python 3.12 .venv312
+. .venv312/bin/activate
+pip install --upgrade pip
+```
+
+### 4. Install project dependencies
+
+```bash
+cd <workspace>/taltech-uav-mcp-server
+. .venv312/bin/activate
 pip install -e ".[dev]"
 cp .env.example .env
-python -m uav_mcp_server --transport stdio
 ```
 
-For HTTP transport:
+Optional camera extras:
 
 ```bash
-python -m uav_mcp_server --transport streamable-http --host 127.0.0.1 --port 8000
+pip install -e ".[camera]"
 ```
 
-For the best live launch path on a workstation with PX4 already checked out next to this repo:
+### 5. Install PX4 Python-side build requirements
 
 ```bash
+cd <workspace>/taltech-uav-mcp-server
+. .venv312/bin/activate
+pip install -r ../PX4-Autopilot/Tools/setup/requirements.txt ninja
+```
+
+### 6. Configure the project
+
+Copy the example environment file if you have not already:
+
+```bash
+cd <workspace>/taltech-uav-mcp-server
+cp .env.example .env
+```
+
+Review the important values in `.env`:
+
+- `PX4_CONNECTION_STRING`
+- `GEOFENCE_CENTER_LAT`
+- `GEOFENCE_CENTER_LON`
+- `DEFAULT_TAKEOFF_ALTITUDE_M`
+- `CAMERA_ENABLED`
+- `GEMINI_API_KEY` if you want live AI planning instead of fallback parsing
+
+If PX4 is not next to this repository, set:
+
+```bash
+export PX4_DIR=/absolute/path/to/PX4-Autopilot
+```
+
+### 7. Prepare the PX4 checkout when using Gazebo Classic fallback
+
+Only needed on fallback hosts such as Ubuntu 22.04:
+
+```bash
+cd <workspace>/taltech-uav-mcp-server
+scripts/prepare_px4_classic_fallback.sh
+```
+
+### 8. Launch the full live stack
+
+Preferred launcher:
+
+```bash
+cd <workspace>/taltech-uav-mcp-server
 scripts/launch_live_stack.sh
 ```
 
-The launcher starts PX4 SITL headless, picks `gz_x500` when Gazebo Harmonic is available, falls back to `gazebo-classic` otherwise, aligns the SITL home position with the configured geofence, defaults the Classic path to the repo-local CERN Science Gateway world, starts the HTTP MCP server, and runs a smoke check before returning.
+What this does:
 
-The supported explicit `PX4_MODEL` values for the launcher are `gz_x500` and `gazebo-classic`. If you request a model that is not supported on the current host, the launcher fails fast instead of silently falling back.
+- stops any existing repo-managed stack
+- selects the best supported simulator mode for the host
+- starts PX4 SITL headless
+- starts the HTTP MCP server on `127.0.0.1:8000`
+- runs a smoke check before returning
 
-For full install and launch instructions on a fresh workstation, see [new-system-workflow.md](docs/new-system-workflow.md).
-
-For local API testing without PX4 SITL:
+Optional overrides:
 
 ```bash
+export PX4_MODEL=gz_x500
+export HOST=127.0.0.1
+export PORT=8000
+export HEADLESS=1
+```
+
+For the TalTech campus world:
+
+```bash
+cd <workspace>/taltech-uav-mcp-server
+scripts/launch_taltech_live_stack.sh
+```
+
+### 9. Open the server and dashboard
+
+After launch:
+
+- MCP HTTP endpoint: `http://127.0.0.1:8000/mcp`
+- Operator dashboard: `http://127.0.0.1:8000/dashboard/`
+
+### 10. Verify the installation
+
+Run the fast local test suite:
+
+```bash
+cd <workspace>/taltech-uav-mcp-server
+PYTHONPATH=src .venv312/bin/python -m pytest -q
+```
+
+Run the HTTP smoke test:
+
+```bash
+cd <workspace>/taltech-uav-mcp-server
+.venv312/bin/python scripts/smoke_http.py --mode connect --url http://127.0.0.1:8000/mcp
+```
+
+Run the full flight smoke test:
+
+```bash
+cd <workspace>/taltech-uav-mcp-server
+.venv312/bin/python scripts/smoke_http.py --mode flight --url http://127.0.0.1:8000/mcp
+```
+
+### 11. Stop the stack
+
+```bash
+cd <workspace>/taltech-uav-mcp-server
+scripts/stop_live_stack.sh
+```
+
+## Local Backend Mode
+
+For UI and API testing without PX4 or MAVSDK:
+
+```bash
+cd <workspace>/taltech-uav-mcp-server
 PYTHONPATH=src python3 -m uav_mcp_server --transport streamable-http --backend local --host 127.0.0.1 --port 8000
 ```
 
-## Server-only Docker
+This mode is useful for:
 
-The repository now includes a server-only container path. It packages the Python MCP server, not PX4 or Gazebo.
+- dashboard development
+- assistant planning and execution flow testing
+- API-level smoke tests
 
-Local backend mode:
+It is not a replacement for live SITL validation.
+
+## Server-Only Docker Path
+
+This image packages the Python MCP server only. PX4 SITL and Gazebo still run on the host.
+
+Build:
 
 ```bash
 docker build -t uav-mcp-server .
+```
+
+Run in local backend mode:
+
+```bash
 docker run --rm -p 8000:8000 -e BACKEND_MODE=local uav-mcp-server
 ```
 
-Live mode against host PX4 on Linux:
+Run in live mode against host PX4:
 
 ```bash
+BACKEND_MODE=live PX4_CONNECTION_STRING=udpin://0.0.0.0:14540 \
 docker compose -f docker-compose.server.yml up --build
 ```
 
-For live mode, keep PX4 SITL on the host and set `BACKEND_MODE=live` plus `PX4_CONNECTION_STRING=udpin://0.0.0.0:14540`.
+## Additional Docs
 
-## Operator Dashboard
-
-When the server runs in HTTP mode, a thin operator dashboard is available at `/dashboard/`. It provides:
-
-- Real-time telemetry via Server-Sent Events (SSE)
-- Manual command execution through the same safety layer as MCP tools
-- Live camera stream with click-and-drag target projection
-- Orbit and approach actions driven from the selected visual target
-- Live map with breadcrumb trail, geofence, home marker, and target marker
-- Browser voice shortcuts for common flight actions
-- Event log with command results and safety rejections
-
-The dashboard loads as a single HTML page with no external build system or CDN dependencies. QGroundControl can stay connected while the dashboard is in use.
-
-## Verification
-
-Fast local tests:
-
-```bash
-PYTHONPATH=src python -m pytest -q
-```
-
-Live SITL verification is documented in [setup.md](docs/setup.md) and [demo.md](docs/demo.md).
+- Fresh-machine workflow: [docs/new-system-workflow.md](docs/new-system-workflow.md)
+- Setup summary: [docs/setup.md](docs/setup.md)
+- Architecture: [docs/architecture.md](docs/architecture.md)
+- Demo notes: [docs/demo.md](docs/demo.md)
+- Evaluation notes: [docs/evaluation.md](docs/evaluation.md)

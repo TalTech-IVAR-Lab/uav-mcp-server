@@ -73,6 +73,7 @@ class CameraStreamer:
         self._owns_rclpy_init = False
         self._last_frame_monotonic: float | None = None
         self._frame_stale_after_s = max(2.0, 3.0 / float(self._fps))
+        self._next_helper_restart_after: float = 0.0
 
         if not enabled:
             self._status.reason = "Camera feature is disabled in settings."
@@ -92,9 +93,20 @@ class CameraStreamer:
     def is_available(self) -> bool:
         if self._process is not None and self._process.poll() is not None:
             self._status.available = False
-            if self._status.reason is None:
+            return_code = self._process.returncode
+            now = time.monotonic()
+            if now >= self._next_helper_restart_after:
+                logger.info(
+                    "Camera helper exited with status %s; restarting in 5 s.", return_code
+                )
+                self._process = None
+                self._thread = None
+                self._stderr_thread = None
+                self._next_helper_restart_after = now + 5.0
+                self._start_helper_subprocess()
+            else:
                 self._status.reason = (
-                    f"Camera helper exited with status {self._process.returncode}."
+                    f"Camera helper exited with status {return_code}; restart pending."
                 )
             return False
 

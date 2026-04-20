@@ -183,7 +183,9 @@ stop_matching_processes() {
 
 if [ "$FORCE_CLEAN" -eq 1 ]; then
   stop_port_processes "MCP server" tcp 8000
+  stop_port_processes "MAVSDK server" tcp 50051
   stop_port_processes "PX4 SITL" udp 14540 14580 18570
+  stop_matching_processes "MAVSDK server" "mavsdk_server -p 50051"
 
   if [ -d "$PX4_DIR" ]; then
     stop_matching_processes "Gazebo Classic SITL" "$PX4_DIR/Tools/simulation/gazebo-classic/sitl_gazebo-classic"

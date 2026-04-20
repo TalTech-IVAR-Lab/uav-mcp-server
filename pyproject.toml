@@ -17,11 +17,17 @@ dependencies = [
   "pydantic>=2.7.0",
   "pydantic-settings>=2.2.1",
   "structlog>=24.1.0",
+  "google-genai>=1.72.0",
 ]
 
 [project.optional-dependencies]
 camera = [
   "opencv-python-headless>=4.10.0",
+]
+terrain = [
+  "geopy>=2.4.1",
+  "mercantile>=1.2.0",
+  "opencv-python-headless>=4.11.0",
 ]
 dev = [
   "pytest>=8.3.0",

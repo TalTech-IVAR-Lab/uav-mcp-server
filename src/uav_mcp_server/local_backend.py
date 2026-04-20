@@ -39,6 +39,9 @@ class LocalSimulationBackend:
     connected_to: str | None = None
     takeoff_altitude_m: float = 10.0
     goto_calls: list[tuple[float, float, float, float]] = field(default_factory=list)
+    gimbal_pitch_calls: list[float] = field(default_factory=list)
+    gimbal_yaw_calls: list[float] = field(default_factory=list)
+    roi_calls: list[tuple[float, float, float]] = field(default_factory=list)
     orbit_calls: list[tuple[float, float, float, float, float, str]] = field(default_factory=list)
     uploaded_missions: list[list[MissionWaypoint]] = field(default_factory=list)
     started_missions: int = 0
@@ -60,6 +63,8 @@ class LocalSimulationBackend:
     _yaw_deg: float = 0.0
     _pitch_deg: float = 0.0
     _roll_deg: float = 0.0
+    _gimbal_pitch_deg: float = 0.0
+    _gimbal_yaw_deg: float = 0.0
 
     def __post_init__(self) -> None:
         self._latitude_deg = self.home_latitude_deg
@@ -131,19 +136,45 @@ class LocalSimulationBackend:
         absolute_altitude_m: float,
         yaw_deg: float = 0.0,
     ) -> None:
-        del yaw_deg
         self._ensure_connected()
-        self.goto_calls.append((latitude_deg, longitude_deg, absolute_altitude_m, 0.0))
+        self.goto_calls.append((latitude_deg, longitude_deg, absolute_altitude_m, yaw_deg))
         self._armed = True
         self._in_air = True
         self._latitude_deg = latitude_deg
         self._longitude_deg = longitude_deg
         self._absolute_altitude_m = absolute_altitude_m
         self._relative_altitude_m = absolute_altitude_m - self.home_absolute_altitude_m
+        self._yaw_deg = yaw_deg
         await self._armed_stream.publish(True)
         await self._in_air_stream.publish(True)
         await self._flight_mode_stream.publish("GOTO")
         await self._position_stream.publish(self._position())
+        await self._attitude_stream.publish(self._attitude())
+
+    async def gimbal_pitch_relative(self, delta_deg: float) -> None:
+        self._ensure_connected()
+        self.gimbal_pitch_calls.append(delta_deg)
+        self._gimbal_pitch_deg = max(-90.0, min(30.0, self._gimbal_pitch_deg + delta_deg))
+
+    def current_gimbal_pitch_deg(self) -> float:
+        return self._gimbal_pitch_deg
+
+    async def gimbal_yaw_relative(self, delta_deg: float) -> None:
+        self._ensure_connected()
+        self.gimbal_yaw_calls.append(delta_deg)
+        self._gimbal_yaw_deg = (self._gimbal_yaw_deg + delta_deg) % 360.0
+
+    def current_gimbal_yaw_deg(self) -> float:
+        return self._gimbal_yaw_deg
+
+    async def set_roi_location(
+        self,
+        latitude_deg: float,
+        longitude_deg: float,
+        absolute_altitude_m: float,
+    ) -> None:
+        self._ensure_connected()
+        self.roi_calls.append((latitude_deg, longitude_deg, absolute_altitude_m))
 
     async def orbit(
         self,
@@ -258,3 +289,4 @@ class LocalSimulationBackend:
         await self._flight_mode_stream.publish("HOLD")
         await self._armed_stream.publish(self._armed)
         await self._in_air_stream.publish(self._in_air)
+        await self._attitude_stream.publish(self._attitude())

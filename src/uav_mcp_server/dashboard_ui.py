@@ -1,7 +1,7 @@
 """Inline operator dashboard HTML with embedded CSS and JavaScript.
 
-The page stays self-contained in a single response while using Leaflet from a
-CDN for the live map layer.
+The page stays self-contained in a single response while using MapLibre GL JS
+from a CDN for the live 3D map layer.
 """
 
 DASHBOARD_HTML = """\
@@ -11,457 +11,728 @@ DASHBOARD_HTML = """\
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>UAV MCP Dashboard</title>
-<link
-  rel="stylesheet"
-  href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-  integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
-  crossorigin=""
->
+<meta name="description" content="Real-time UAV operator dashboard with telemetry, map, camera targeting, and AI-assisted command execution.">
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@^4.7.1/dist/maplibre-gl.css" crossorigin="">
 <style>
-*,*::before,*::after{box-sizing:border-box}
-:root{
-  --bg:#050608;
-  --bg-alt:#0a0c10;
-  --panel:#101318;
-  --panel-strong:#141922;
-  --panel-soft:#171d28;
-  --border:#252c39;
-  --border-strong:#384253;
-  --text:#f3f6fb;
-  --muted:#8d98aa;
-  --soft:#667389;
-  --blue:#4aa3ff;
-  --cyan:#58d7ff;
-  --green:#58d68d;
-  --amber:#f2b94b;
-  --red:#ff6e70;
-  --shadow:0 18px 60px rgba(0,0,0,.32);
-}
-html,body{margin:0;padding:0;background:
-  radial-gradient(circle at top left, rgba(74,163,255,.12), transparent 28%),
-  radial-gradient(circle at top right, rgba(88,215,255,.08), transparent 24%),
-  linear-gradient(180deg, #050608 0%, #07090c 42%, #050608 100%);
-  color:var(--text);height:100%}
-body{font-family:"IBM Plex Sans","Segoe UI",system-ui,sans-serif;font-size:13px;line-height:1.38;
-  min-height:100vh;overflow:hidden}
-button,input{font:inherit}
-.shell{max-width:1720px;height:100vh;margin:0 auto;padding:12px 16px 14px;display:grid;
-  grid-template-rows:auto minmax(0,1fr);gap:12px}
-.topbar{display:flex;justify-content:space-between;align-items:flex-start;gap:14px;min-height:0}
-.title-wrap{display:flex;flex-direction:column;gap:6px}
-.eyebrow{font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--soft)}
-.title{font-size:22px;font-weight:600;letter-spacing:.01em}
-.subtitle{font-size:12px;color:var(--muted);max-width:760px}
-.status-strip{display:flex;flex-wrap:wrap;justify-content:flex-end;align-items:flex-start;gap:8px}
-.chip{display:inline-flex;align-items:center;gap:8px;padding:8px 12px;border-radius:999px;
-  border:1px solid var(--border);background:rgba(16,19,24,.84);color:var(--muted);backdrop-filter:blur(12px)}
-.dot{width:8px;height:8px;border-radius:999px;background:var(--soft)}
-.chip.ok .dot{background:var(--green)}
-.chip.warn .dot{background:var(--amber)}
-.chip.err .dot{background:var(--red)}
-.chip.live .dot{background:var(--cyan);box-shadow:0 0 0 6px rgba(88,215,255,.12)}
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-.dashboard{min-height:0;display:grid;grid-template-columns:minmax(460px,1.12fr) minmax(400px,.96fr) minmax(320px,.78fr);
-  grid-template-rows:minmax(0,1fr) minmax(0,1fr) minmax(0,1fr);gap:12px;
-  grid-template-areas:
-    "visual map status"
-    "visual map commands"
-    "visual map events"}
-.dashboard>.stack{display:contents}
-.stack{min-height:0}
-.panel{background:linear-gradient(180deg, rgba(20,25,34,.92), rgba(14,18,24,.92));
-  border:1px solid var(--border);border-radius:18px;box-shadow:var(--shadow);overflow:hidden;
-  min-height:0;display:flex;flex-direction:column}
-.panel-head{display:flex;justify-content:space-between;align-items:center;gap:12px;
-  padding:12px 14px;border-bottom:1px solid rgba(56,66,83,.55)}
-.panel-title{font-size:13px;font-weight:600;letter-spacing:.16em;text-transform:uppercase;color:var(--muted)}
-.panel-note{font-size:12px;color:var(--soft)}
-.panel-body{padding:12px 14px;min-height:0;flex:1}
+  /* ── Design Tokens ── */
+  :root {
+    --bg-primary: #05050a;
+    --bg-radial: radial-gradient(ellipse at 50% -20%, #12132a 0%, #05050a 70%);
+    --panel-bg: rgba(10, 12, 22, 0.55);
+    --panel-border: rgba(255, 255, 255, 0.07);
+    --panel-shadow: 0 4px 24px rgba(0, 0, 0, 0.5);
+    --accent: #00e5ff;
+    --accent-dim: rgba(0, 229, 255, 0.12);
+    --accent-hover: #00b8d4;
+    --accent-glow: rgba(0, 229, 255, 0.45);
+    --purple: #9d4edd;
+    --success: #10b981;
+    --warning: #f59e0b;
+    --danger: #ef4444;
+    --text-main: #f0f4f8;
+    --text-muted: #7e8fa6;
+    --font: 'Outfit', system-ui, -apple-system, sans-serif;
+    --radius: 10px;
+    --radius-sm: 6px;
+    --transition: 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+  }
 
-.visual-panel{grid-area:visual}
-.map-panel{grid-area:map}
-.status-panel{grid-area:status}
-.commands-panel{grid-area:commands}
-.events-panel{grid-area:events}
-.commands-panel .panel-body{overflow:auto}
-.events-panel .panel-body{overflow:hidden}
+  html, body {
+    width: 100%; height: 100%; overflow: hidden;
+    background: var(--bg-radial);
+    color: var(--text-main);
+    font-family: var(--font);
+    font-size: 12px;
+    line-height: 1.35;
+  }
 
-.telemetry-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
-.metric{background:linear-gradient(180deg, rgba(8,10,14,.88), rgba(10,13,18,.68));
-  border:1px solid rgba(37,44,57,.9);border-radius:14px;padding:10px 12px;min-height:64px}
-.metric-label{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--soft)}
-.metric-value{margin-top:6px;font-size:18px;font-weight:600;font-variant-numeric:tabular-nums}
-.metric-sub{margin-top:3px;font-size:11px;color:var(--muted)}
-.state-pill{display:inline-flex;align-items:center;padding:8px 12px;border-radius:12px;
-  border:1px solid transparent;font-size:12px;letter-spacing:.16em;text-transform:uppercase;font-weight:600}
-.state-disconnected{color:var(--red);background:rgba(255,110,112,.12);border-color:rgba(255,110,112,.22)}
-.state-connected,.state-ready{color:var(--green);background:rgba(88,214,141,.12);border-color:rgba(88,214,141,.22)}
-.state-armed{color:var(--amber);background:rgba(242,185,75,.12);border-color:rgba(242,185,75,.22)}
-.state-airborne{color:var(--blue);background:rgba(74,163,255,.12);border-color:rgba(74,163,255,.22)}
-.state-landing{color:var(--amber);background:rgba(242,185,75,.12);border-color:rgba(242,185,75,.22)}
-.state-fault{color:var(--red);background:rgba(255,110,112,.12);border-color:rgba(255,110,112,.22)}
+  /* ── Animations ── */
+  @keyframes pulseGlow {
+    0%, 100% { box-shadow: 0 0 4px var(--accent-glow); }
+    50% { box-shadow: 0 0 14px var(--accent-glow); }
+  }
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
 
-.command-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
-.cmd-btn,.action-btn,.voice-btn{appearance:none;border:1px solid var(--border-strong);background:
-  linear-gradient(180deg, rgba(8,11,15,.98), rgba(11,15,20,.98));color:var(--text);
-  border-radius:14px;padding:10px 12px;text-align:left;cursor:pointer;transition:transform .16s ease,
-  border-color .16s ease, background .16s ease, opacity .16s ease}
-.cmd-btn:hover,.action-btn:hover,.voice-btn:hover{border-color:var(--cyan);transform:translateY(-1px)}
-.cmd-btn:disabled,.action-btn:disabled,.voice-btn:disabled{opacity:.42;cursor:not-allowed;transform:none}
-.cmd-name{display:block;font-size:13px;font-weight:600}
-.cmd-hint{display:block;margin-top:4px;font-size:11px;color:var(--muted)}
-.cmd-btn.safe{border-color:rgba(88,214,141,.34)}
-.cmd-btn.caution{border-color:rgba(242,185,75,.34)}
-.cmd-btn.danger{border-color:rgba(255,110,112,.34)}
-.field-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:10px}
-.field-group{display:grid;gap:6px}
-.field-label{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--soft)}
-.field-input{width:100%;padding:9px 11px;border-radius:12px;border:1px solid var(--border);
-  background:rgba(5,6,8,.86);color:var(--text)}
-.field-input:focus{outline:none;border-color:var(--cyan);box-shadow:0 0 0 3px rgba(88,215,255,.12)}
-.result-bar{margin-top:10px;padding:10px 11px;border-radius:14px;border:1px solid transparent;
-  display:none;font-size:12px;font-family:"IBM Plex Mono","SFMono-Regular",Consolas,monospace}
-.result-bar.visible{display:block}
-.result-bar.ok{background:rgba(88,214,141,.08);border-color:rgba(88,214,141,.24);color:#d4ffe4}
-.result-bar.err{background:rgba(255,110,112,.08);border-color:rgba(255,110,112,.24);color:#ffd9d9}
-.result-bar.info{background:rgba(74,163,255,.08);border-color:rgba(74,163,255,.24);color:#d4e9ff}
+  /* ── Scrollbar ── */
+  ::-webkit-scrollbar { width: 4px; height: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.15); }
 
-.camera-wrap{display:grid;grid-template-rows:auto minmax(0,1fr) auto auto;gap:10px;height:100%}
-.camera-toolbar{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
-.toolbar-group{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
-.camera-stage{position:relative;border-radius:22px;overflow:hidden;background:#030405;
-  border:1px solid rgba(56,66,83,.55);min-height:0;height:100%}
-.camera-stream{width:100%;height:100%;object-fit:cover;display:block;background:#020304}
-.camera-overlay{position:absolute;inset:0;cursor:crosshair;touch-action:none}
-.crosshair{position:absolute;left:50%;top:50%;width:34px;height:34px;transform:translate(-50%,-50%);
-  border:1px solid rgba(255,255,255,.22);border-radius:999px;pointer-events:none}
-.crosshair::before,.crosshair::after{content:"";position:absolute;background:rgba(255,255,255,.22)}
-.crosshair::before{left:50%;top:4px;width:1px;height:26px;transform:translateX(-50%)}
-.crosshair::after{top:50%;left:4px;width:26px;height:1px;transform:translateY(-50%)}
-.selection-box{position:absolute;border:1px solid var(--cyan);background:rgba(88,215,255,.08);
-  box-shadow:0 0 0 1px rgba(88,215,255,.12) inset;display:none}
-.selection-box.visible{display:block}
-.camera-placeholder{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
-  padding:18px;text-align:center;color:var(--muted);background:linear-gradient(180deg, rgba(3,4,5,.2), rgba(3,4,5,.85))}
-.camera-placeholder.hidden{display:none}
-.selection-bar{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:start}
-.selection-card{padding:12px 14px;border-radius:16px;background:rgba(8,11,15,.76);border:1px solid var(--border)}
-.selection-title{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--soft)}
-.selection-body{margin-top:6px;font-size:12px;font-variant-numeric:tabular-nums;color:var(--text)}
-.selection-actions{display:flex;gap:10px;flex-wrap:wrap}
-.action-btn{min-width:128px}
-.action-btn.primary{border-color:rgba(74,163,255,.34)}
-.action-btn.secondary{border-color:rgba(88,214,141,.34)}
+  /* ── Shell ── */
+  .shell {
+    display: grid;
+    grid-template-rows: auto 1fr;
+    height: 100vh;
+    padding: 6px 12px 12px;
+    gap: 8px;
+    max-width: 1920px;
+    margin: 0 auto;
+    animation: fadeIn 0.35s ease-out;
+  }
 
-.voice-grid{display:grid;grid-template-columns:auto minmax(0,1fr);gap:12px;align-items:start}
-.voice-btn{width:54px;height:54px;border-radius:16px;padding:0;text-align:center;font-size:18px}
-.voice-btn.listening{border-color:var(--red);box-shadow:0 0 0 10px rgba(255,110,112,.1);animation:pulse 1.2s infinite}
-@keyframes pulse{
-  0%{box-shadow:0 0 0 0 rgba(255,110,112,.28)}
-  70%{box-shadow:0 0 0 14px rgba(255,110,112,0)}
-  100%{box-shadow:0 0 0 0 rgba(255,110,112,0)}
-}
-.voice-card{padding:12px 14px;border-radius:16px;background:rgba(8,11,15,.76);border:1px solid var(--border)}
-.voice-transcript{margin-top:6px;min-height:32px;color:var(--text)}
-.voice-actions{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;margin-top:10px}
-.voice-input{width:100%;padding:10px 12px;border-radius:12px;border:1px solid var(--border);
-  background:rgba(5,6,8,.86);color:var(--text)}
-.voice-input:focus{outline:none;border-color:var(--cyan);box-shadow:0 0 0 3px rgba(88,215,255,.12)}
-.voice-submit{min-width:138px;text-align:center}
-.voice-hint{margin-top:6px;font-size:11px;color:var(--muted)}
+  /* ── Top Bar ── */
+  .topbar {
+    display: flex; justify-content: space-between; align-items: center;
+    background: var(--panel-bg); backdrop-filter: blur(16px);
+    border: 1px solid var(--panel-border); border-radius: var(--radius);
+    padding: 6px 16px;
+  }
+  .title-block .eyebrow {
+    color: var(--accent); font-weight: 600; font-size: 9px;
+    text-transform: uppercase; letter-spacing: 0.15em;
+  }
+  .title-block h1 {
+    font-size: 15px; font-weight: 700; margin: 1px 0 0;
+    background: linear-gradient(135deg, #fff 30%, var(--accent));
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
 
-.map-wrap{display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr) auto;gap:10px;height:100%}
-.map-surface{position:relative;height:100%;min-height:0;border-radius:18px;overflow:hidden;border:1px solid rgba(56,66,83,.55)}
-#map{width:100%;height:100%;background:#0b0e12}
-.map-note{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;align-content:start}
-.map-card{padding:12px 14px;border-radius:16px;background:rgba(8,11,15,.76);border:1px solid var(--border)}
-.map-card h3{margin:0;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--soft)}
-.map-card p{margin:8px 0 0;color:var(--muted);font-size:12px}
-.toggle-row{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:8px}
-.toggle{display:inline-flex;align-items:center;gap:8px;color:var(--text)}
-.toggle input{accent-color:var(--cyan)}
-.legend{display:grid;gap:6px;margin-top:8px}
-.legend-row{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:12px}
-.legend-swatch{width:14px;height:14px;border-radius:999px}
-.swatch-drone{background:var(--blue)}
-.swatch-home{background:var(--green)}
-.swatch-target{background:var(--amber)}
-.swatch-fence{background:rgba(88,215,255,.6)}
+  /* ── Status Chips ── */
+  .status-strip { display: flex; gap: 8px; flex-wrap: wrap; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 3px 10px; border-radius: 12px;
+    background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.04);
+    font-size: 10px; font-weight: 500; white-space: nowrap;
+  }
+  .chip .dot { width: 5px; height: 5px; border-radius: 50%; background: var(--text-muted); flex-shrink: 0; }
+  .chip.ok .dot   { background: var(--success); box-shadow: 0 0 6px var(--success); }
+  .chip.warn .dot  { background: var(--warning); box-shadow: 0 0 6px var(--warning); }
+  .chip.err .dot   { background: var(--danger);  box-shadow: 0 0 6px var(--danger); }
+  .chip.live       { background: var(--accent-dim); border-color: rgba(0,229,255,0.15); }
+  .chip.live .dot  { background: var(--accent);  box-shadow: 0 0 6px var(--accent); }
 
-.events{height:100%;max-height:none;overflow:auto;padding-right:4px}
-.event-row{display:grid;grid-template-columns:68px 98px minmax(0,1fr);gap:8px;padding:8px 0;border-bottom:1px solid rgba(37,44,57,.55)}
-.event-row:last-child{border-bottom:none}
-.event-time,.event-kind{font-family:"IBM Plex Mono","SFMono-Regular",Consolas,monospace;font-size:11px;color:var(--soft)}
-.event-kind{color:var(--cyan)}
-.event-msg{color:var(--text)}
-.event-ok .event-msg{color:#d9ffe8}
-.event-err .event-msg{color:#ffd7d7}
+  /* ── Dashboard Grid ── */
+  .dashboard {
+    display: grid;
+    grid-template-columns: minmax(340px, 1fr) minmax(300px, 0.85fr) minmax(280px, 0.75fr);
+    grid-template-rows: minmax(0, 1.15fr) minmax(0, 0.85fr);
+    gap: 8px;
+    height: 100%;
+    min-height: 0;
+    grid-template-areas:
+      "visual map    status"
+      "visual commands controls";
+  }
 
-.leaflet-container{font:inherit;background:#0c1016}
-.leaflet-control-container .leaflet-control{background:rgba(10,12,16,.86);color:var(--text);border:1px solid var(--border)}
-.leaflet-popup-content-wrapper,.leaflet-popup-tip{background:#101318;color:var(--text)}
-.drone-icon{width:22px;height:22px;border-radius:999px;border:2px solid rgba(255,255,255,.2);
-  background:linear-gradient(180deg, var(--blue), #1f6cbb);position:relative;box-shadow:0 0 16px rgba(74,163,255,.4)}
-.drone-icon::after{content:"";position:absolute;left:50%;top:3px;transform:translateX(-50%);
-  width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-bottom:9px solid #eff7ff}
-.home-icon,.target-icon{width:16px;height:16px;border-radius:999px;border:2px solid rgba(255,255,255,.2)}
-.home-icon{background:var(--green)}
-.target-icon{background:var(--amber)}
+  /* ── Panel Base ── */
+  .panel {
+    display: flex; flex-direction: column;
+    background: var(--panel-bg); backdrop-filter: blur(20px);
+    border: 1px solid var(--panel-border); border-radius: var(--radius);
+    box-shadow: var(--panel-shadow);
+    overflow: hidden; min-height: 0;
+  }
+  .visual-panel   { grid-area: visual; }
+  .map-panel      { grid-area: map; }
+  .status-panel   { grid-area: status; }
+  .commands-panel  { grid-area: commands; }
+  .controls-panel  { grid-area: controls; }
 
-@media(max-width:1480px){
-  .dashboard{grid-template-columns:minmax(420px,1.05fr) minmax(360px,.95fr) minmax(290px,.75fr)}
-}
-@media(max-width:1180px){
-  body{overflow:auto}
-  .shell{height:auto;min-height:100vh}
-  .dashboard{grid-template-columns:1fr;grid-template-rows:auto;grid-template-areas:none}
-  .dashboard>.stack{display:grid;gap:12px}
-  .map-wrap{grid-template-columns:1fr;grid-template-rows:minmax(320px,52vh) auto}
-  .camera-stage{min-height:360px}
-}
-@media(max-width:860px){
-  .shell{padding:14px}
-  .topbar{flex-direction:column}
-  .status-strip{justify-content:flex-start}
-  .telemetry-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
-  .map-note{grid-template-columns:1fr}
-  .selection-bar,.voice-grid{grid-template-columns:1fr}
-  .command-grid{grid-template-columns:1fr}
-}
+  .panel-head {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 7px 12px;
+    background: rgba(255,255,255,0.015);
+    border-bottom: 1px solid var(--panel-border);
+    flex-shrink: 0;
+  }
+  .panel-title {
+    font-size: 10px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.1em;
+    color: rgba(255,255,255,0.85);
+  }
+  .panel-body {
+    padding: 8px 10px; flex: 1; min-height: 0;
+    overflow-y: auto; display: flex; flex-direction: column;
+  }
+
+  /* ── Buttons ── */
+  button { cursor: pointer; font-family: var(--font); }
+  .action-btn {
+    padding: 4px 10px; font-weight: 500; font-size: 11px;
+    border: 1px solid var(--panel-border);
+    background: rgba(255,255,255,0.03); color: var(--text-main);
+    border-radius: var(--radius-sm);
+    transition: all var(--transition);
+  }
+  .action-btn:hover { background: rgba(255,255,255,0.07); border-color: rgba(255,255,255,0.15); }
+  .action-btn:active { transform: scale(0.97); }
+  .action-btn:disabled { opacity: 0.35; cursor: not-allowed; transform: none; }
+  .action-btn.primary {
+    background: var(--accent); color: #000; border: none; font-weight: 600;
+  }
+  .action-btn.primary:hover { background: var(--accent-hover); box-shadow: 0 2px 10px var(--accent-glow); }
+  .action-btn.secondary { background: transparent; border: 1px solid var(--accent); color: var(--accent); }
+  .action-btn.secondary:hover { background: var(--accent-dim); }
+
+  /* ── Inputs ── */
+  .field-input {
+    width: 100%; border-radius: var(--radius-sm);
+    border: 1px solid rgba(255,255,255,0.08);
+    background: rgba(0,0,0,0.35); color: var(--text-main);
+    font-family: var(--font); padding: 5px 8px; font-size: 11px;
+    outline: none; transition: border-color var(--transition);
+  }
+  .field-input:focus { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(0,229,255,0.08); }
+  .field-group { display: flex; flex-direction: column; gap: 2px; }
+  .field-label {
+    font-size: 9px; text-transform: uppercase;
+    color: var(--text-muted); font-weight: 600; letter-spacing: 0.05em;
+  }
+
+  /* ── Cards ── */
+  .card {
+    background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.04);
+    border-radius: 8px; padding: 6px 10px;
+  }
+  .card-title {
+    color: var(--text-muted); font-size: 9px;
+    text-transform: uppercase; letter-spacing: 0.1em; font-weight: 600;
+  }
+
+  /* ── State Pills ── */
+  .state-pill {
+    display: inline-flex; align-items: center; justify-content: center;
+    padding: 2px 6px; border-radius: 4px;
+    font-size: 9px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase;
+  }
+  .state-disconnected { color: var(--danger); background: rgba(239,68,68,0.12); border: 1px solid rgba(239,68,68,0.25); }
+  .state-connected, .state-ready { color: var(--success); background: rgba(16,185,129,0.12); border: 1px solid rgba(16,185,129,0.25); }
+  .state-armed { color: var(--warning); background: rgba(245,158,11,0.12); border: 1px solid rgba(245,158,11,0.25); }
+  .state-airborne { color: var(--accent); background: var(--accent-dim); border: 1px solid rgba(0,229,255,0.25); }
+  .state-landing { color: var(--purple); background: rgba(157,78,221,0.12); border: 1px solid rgba(157,78,221,0.25); }
+  .state-fault { color: var(--danger); background: rgba(239,68,68,0.12); border: 1px solid rgba(239,68,68,0.25); }
+
+  /* ── Camera / Visual Targeting ── */
+  .camera-shell { display: flex; flex-direction: column; height: 100%; gap: 6px; }
+  .camera-toolbar { display: flex; justify-content: space-between; align-items: center; }
+  .camera-stage {
+    position: relative; flex: 1; min-height: 120px;
+    border-radius: 8px; overflow: hidden;
+    border: 1px solid var(--panel-border);
+    background: #020304;
+  }
+  .camera-stream { width: 100%; height: 100%; object-fit: cover; }
+  .camera-overlay { position: absolute; inset: 0; cursor: crosshair; touch-action: none; }
+  .crosshair {
+    position: absolute; left: 50%; top: 50%; width: 24px; height: 24px;
+    transform: translate(-50%, -50%);
+    border: 1px solid rgba(0,229,255,0.35); border-radius: 50%;
+    pointer-events: none;
+  }
+  .crosshair::before, .crosshair::after { content: ""; position: absolute; background: rgba(0,229,255,0.5); }
+  .crosshair::before { left: 50%; top: -4px; width: 1px; height: 32px; transform: translateX(-50%); }
+  .crosshair::after  { top: 50%; left: -4px; width: 32px; height: 1px; transform: translateY(-50%); }
+  .selection-box { position: absolute; display: none; border: 1px solid var(--accent); background: rgba(0,229,255,0.08); }
+  .selection-box.visible { display: block; animation: pulseGlow 2s infinite; }
+  .camera-placeholder {
+    position: absolute; inset: 0; display: flex; align-items: center;
+    justify-content: center; text-align: center; color: var(--text-muted);
+    font-size: 11px;
+    background: radial-gradient(circle, rgba(10,12,22,0.85), rgba(0,0,0,0.95));
+  }
+  .camera-placeholder.hidden { display: none; }
+  .visual-footer { display: flex; flex-direction: column; gap: 6px; }
+  .target-line { display: flex; justify-content: space-between; align-items: center; padding: 1px 0; }
+  .target-line span { color: var(--text-muted); font-size: 10px; }
+  .target-line strong { font-weight: 500; font-size: 10px; }
+
+  /* ── Telemetry Matrix ── */
+  .status-panel .panel-body { gap: 6px; }
+  .telemetry-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+  .metric {
+    background: linear-gradient(145deg, rgba(255,255,255,0.02), rgba(0,0,0,0.15));
+    border: 1px solid rgba(255,255,255,0.025);
+    border-radius: 8px; padding: 6px 8px;
+  }
+  .metric-label { color: var(--text-muted); font-size: 8px; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 600; }
+  .metric-value { font-size: 13px; font-weight: 600; margin-top: 2px; font-variant-numeric: tabular-nums; }
+  .metric-sub { margin-top: 1px; color: var(--text-muted); font-size: 9px; }
+  .monitor-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+  .monitor-card { display: flex; flex-direction: column; gap: 2px; min-height: 0; }
+  .monitor-card strong { max-width: 145px; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .flag-strip { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+  .monitor-flags { display: flex; flex-direction: column; gap: 4px; }
+
+  /* ── Event Matrix (inside telemetry) ── */
+  .events-section { flex: 1; display: flex; flex-direction: column; overflow: hidden; margin-top: 4px; }
+  .events { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 1px; }
+  .event-row {
+    padding: 2px 0; border-bottom: 1px solid rgba(255,255,255,0.025);
+    display: grid; grid-template-columns: 52px 60px 1fr; gap: 4px; font-size: 10px;
+  }
+  .event-time { color: var(--text-muted); font-family: monospace; font-size: 9px; }
+  .event-kind { color: var(--accent); font-size: 9px; }
+  .event-msg  { color: var(--text-main); font-size: 9px; }
+  .event-ok .event-msg { color: var(--success); }
+  .event-err .event-msg { color: var(--danger); }
+
+  /* ── Map ── */
+  .map-shell { display: flex; flex-direction: column; height: 100%; gap: 6px; }
+  .map-surface { flex: 1; min-height: 80px; border-radius: 8px; overflow: hidden; border: 1px solid var(--panel-border); }
+  #map { width: 100%; height: 100%; filter: contrast(1.1) brightness(0.8) sepia(0.25) hue-rotate(180deg) saturate(1.4); }
+  .map-footer { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .legend { display: flex; flex-wrap: wrap; gap: 6px; }
+  .legend-row { display: flex; align-items: center; gap: 3px; color: var(--text-muted); font-size: 10px; }
+  .legend-swatch { width: 8px; height: 8px; border-radius: 50%; }
+  .swatch-drone  { background: var(--accent); }
+  .swatch-home   { background: var(--success); }
+  .swatch-target { background: var(--warning); }
+  .swatch-fence  { background: rgba(0,229,255,0.4); border: 1px solid var(--accent); }
+  .maplibregl-map { background: transparent !important; }
+  .drone-icon {
+    width: 20px; height: 20px; border-radius: 50%;
+    border: 2px solid #fff; background: var(--accent);
+    box-shadow: 0 0 8px var(--accent); position: relative;
+  }
+  .drone-icon::after {
+    content: ''; position: absolute; top: 0; left: 50%;
+    transform: translateX(-50%) translateY(-50%);
+    width: 0; height: 0;
+    border-left: 4px solid transparent; border-right: 4px solid transparent;
+    border-bottom: 7px solid #fff;
+  }
+  .home-icon   { width: 12px; height: 12px; border-radius: 50%; border: 2px solid #fff; background: var(--success); }
+  .target-icon { width: 12px; height: 12px; border-radius: 50%; border: 2px solid #fff; background: var(--warning); animation: pulseGlow 2s infinite; }
+
+  /* ── Command Execution Panel ── */
+  .command-shell { display: flex; flex-direction: column; gap: 6px; height: 100%; }
+  .tabs { display: flex; border-bottom: 1px solid var(--panel-border); gap: 0; flex-shrink: 0; }
+  .tab-btn {
+    background: none; border: none; border-bottom: 2px solid transparent;
+    color: var(--text-muted); padding: 6px 14px;
+    font-size: 11px; font-weight: 500; border-radius: 0;
+    transition: color var(--transition);
+  }
+  .tab-btn:hover { color: var(--text-main); }
+  .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .tab-content { flex: 1; min-height: 0; overflow-y: auto; }
+
+  .command-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; }
+  .cmd-btn {
+    padding: 6px 4px; display: flex; flex-direction: column; gap: 2px;
+    align-items: center; text-align: center;
+    border: 1px solid var(--panel-border);
+    background: linear-gradient(180deg, rgba(255,255,255,0.04), transparent);
+    color: var(--text-main); border-radius: var(--radius-sm);
+    font-family: var(--font); transition: all var(--transition);
+  }
+  .cmd-btn:hover { background: rgba(255,255,255,0.06); transform: translateY(-1px); }
+  .cmd-btn:active { transform: scale(0.97); }
+  .cmd-btn:disabled { opacity: 0.35; cursor: not-allowed; transform: none; }
+  .cmd-label { font-size: 10px; font-weight: 600; }
+  .cmd-meta  { font-size: 8px; color: var(--text-muted); letter-spacing: 0.08em; }
+  .cmd-safe   { border-left: 2px solid var(--success); }
+  .cmd-danger { border-left: 2px solid var(--danger); }
+  .cmd-ghost  { border-left: 2px solid var(--text-muted); }
+  .field-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+
+  /* ── Manual Override Panel ── */
+  .controls-shell { display: flex; flex-direction: column; gap: 4px; height: 100%; }
+  .result-bar {
+    padding: 5px 10px; border-radius: var(--radius-sm);
+    font-size: 11px; font-weight: 500;
+    background: rgba(0,0,0,0.25); border: 1px solid transparent;
+    flex-shrink: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .result-bar.ok   { background: rgba(16,185,129,0.08); border-color: var(--success); color: var(--success); }
+  .result-bar.err  { background: rgba(239,68,68,0.08); border-color: var(--danger); color: var(--danger); }
+  .result-bar.info { background: var(--accent-dim); border-color: rgba(0,229,255,0.2); color: var(--accent); }
+  .result-bar.connecting {
+    background: rgba(245,158,11,0.08); border-color: var(--warning); color: var(--warning);
+  }
+  .result-bar.connecting::after {
+    content: ''; display: inline-block; width: 10px; height: 10px;
+    border: 2px solid var(--warning); border-top-color: transparent;
+    border-radius: 50%; animation: spin 0.8s linear infinite;
+    margin-left: 8px; vertical-align: middle;
+  }
+
+  .manual-core {
+    display: grid;
+    grid-template-columns: auto auto;
+    gap: 4px 16px;
+    justify-content: center;
+    align-items: start;
+  }
+  .manual-group-label {
+    font-size: 9px; font-weight: 600; color: var(--text-muted);
+    text-transform: uppercase; letter-spacing: 0.08em;
+    text-align: center; margin-bottom: 2px;
+  }
+  .manual-pad {
+    display: grid; grid-template-columns: repeat(3, 32px);
+    grid-template-rows: repeat(2, 32px); gap: 3px; justify-content: center;
+  }
+  .key-w  { grid-column: 2; grid-row: 1; }
+  .key-a  { grid-column: 1; grid-row: 2; }
+  .key-s  { grid-column: 2; grid-row: 2; }
+  .key-d  { grid-column: 3; grid-row: 2; }
+  .key-up    { grid-column: 2; grid-row: 1; }
+  .key-left  { grid-column: 1; grid-row: 2; }
+  .key-down  { grid-column: 2; grid-row: 2; }
+  .key-right { grid-column: 3; grid-row: 2; }
+
+  .key-btn {
+    display: flex; align-items: center; justify-content: center;
+    border-radius: 4px; width: 32px; height: 32px;
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.08);
+    transition: all 0.1s; padding: 0;
+    color: var(--text-main); font-family: var(--font);
+  }
+  .key-cap { font-family: monospace; font-size: 12px; font-weight: 700; line-height: 1; }
+  .key-btn.active { background: rgba(0,229,255,0.2); border-color: var(--accent); transform: scale(0.92); }
+  .key-btn:active { transform: scale(0.92); }
+  .key-btn.unsupported { opacity: 0.2; pointer-events: none; }
+
+  .manual-aux {
+    display: flex; gap: 4px; align-items: center; justify-content: center;
+  }
+  .key-btn-sm {
+    display: flex; align-items: center; justify-content: center;
+    width: 28px; height: 24px; border-radius: 4px;
+    background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.08);
+    transition: all 0.1s; padding: 0;
+    color: var(--text-main); font-family: var(--font); cursor: pointer;
+  }
+  .key-btn-sm .key-cap { font-size: 11px; }
+  .key-btn-sm.unsupported { opacity: 0.2; pointer-events: none; }
+  .key-btn-sm.active { background: rgba(0,229,255,0.2); border-color: var(--accent); }
+
+  .manual-bottom {
+    display: grid; grid-template-columns: auto 1fr auto 1fr; gap: 4px;
+    align-items: center; margin-top: 2px;
+  }
+  .manual-bottom .field-input { padding: 3px 6px; font-size: 10px; }
+  .manual-bottom .field-label { font-size: 8px; }
+
+  .quick-bar { display: flex; gap: 4px; margin-top: auto; }
+  .quick-bar .field-input { flex: 1; padding: 4px 8px; font-size: 10px; }
+  .quick-bar .action-btn { padding: 4px 8px; font-size: 10px; }
+
+  .manual-meta { font-size: 9px; color: var(--text-muted); text-align: center; }
+
+  /* ── Chat / AI Panel ── */
+  .chat-card {
+    display: flex; flex-direction: column; flex: 1; min-height: 0;
+    background: rgba(0,0,0,0.15); border: 1px solid rgba(255,255,255,0.04);
+    border-radius: 8px; overflow: hidden;
+  }
+  .chat-head {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 6px 10px; border-bottom: 1px solid rgba(255,255,255,0.04);
+    flex-shrink: 0;
+  }
+  .chat-body { padding: 6px 8px; display: flex; flex-direction: column; gap: 6px; flex: 1; min-height: 0; }
+  .chat-log { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
+  .chat-empty { color: var(--text-muted); font-size: 10px; text-align: center; margin-top: 16px; }
+  .chat-row {
+    padding: 6px 8px; border-radius: 8px; font-size: 11px; line-height: 1.35;
+    background: rgba(255,255,255,0.02); border-left: 2px solid transparent;
+  }
+  .chat-row.operator { border-color: var(--accent); align-self: flex-end; background: rgba(0,229,255,0.04); max-width: 88%; }
+  .chat-row.assistant { border-color: var(--success); max-width: 88%; }
+  .chat-row.system    { border-color: var(--text-muted); font-size: 10px; color: var(--text-muted); }
+  .chat-role { font-size: 8px; text-transform: uppercase; margin-bottom: 2px; opacity: 0.6; }
+  .trace-list { margin-top: 4px; display: flex; flex-direction: column; gap: 3px; }
+  .trace-item { padding: 4px; background: rgba(0,0,0,0.3); border-radius: 4px; font-family: monospace; font-size: 9px; }
+  .trace-item.ok  { border-left: 2px solid var(--success); }
+  .trace-item.err { border-left: 2px solid var(--danger); }
+
+  .chat-compose { display: flex; gap: 4px; align-items: stretch; flex-shrink: 0; }
+  .confirm-bar {
+    display: none; padding: 5px 8px; font-size: 10px;
+    background: rgba(245,158,11,0.08); border: 1px solid var(--warning);
+    border-radius: var(--radius-sm); justify-content: space-between; align-items: center;
+    flex-shrink: 0;
+  }
+  .confirm-bar.visible { display: flex; }
+
+  .voice-btn {
+    background: rgba(0,229,255,0.08); border: 1px solid rgba(0,229,255,0.2);
+    border-radius: var(--radius-sm); color: var(--accent);
+    padding: 0 8px; cursor: pointer; transition: all var(--transition);
+    font-size: 14px; line-height: 1;
+  }
+  .voice-btn:hover { background: rgba(0,229,255,0.15); }
+  .voice-btn.recording { background: var(--danger); border-color: var(--danger); color: #fff; animation: pulseGlow 1s infinite; }
+
+  /* ── Toggles ── */
+  .toggle { display: flex; align-items: center; gap: 5px; color: var(--text-main); font-size: 10px; }
+  input[type="checkbox"] { accent-color: var(--accent); width: 12px; height: 12px; }
+
+  /* ── Utilities ── */
+  .flex-row { display: flex; gap: 6px; }
+  .text-muted { color: var(--text-muted); }
+  #map-summary { font-size: 10px; color: var(--text-main); margin-bottom: 4px; }
 </style>
 </head>
 <body>
 <div class="shell">
   <header class="topbar">
-    <div class="title-wrap">
-      <div class="eyebrow">Pilot Dashboard</div>
-      <div class="title">UAV MCP Dashboard</div>
-      <div class="subtitle">Black-box operator surface for safe flight control, live video, target selection, orbit actions, and map awareness.</div>
+    <div class="title-block">
+      <div class="eyebrow">Advanced Operator Surface</div>
+      <h1>UAV MCP Interface</h1>
     </div>
     <div class="status-strip">
-      <div id="state-chip" class="chip"><span class="dot"></span><span>State unknown</span></div>
-      <div id="conn-chip" class="chip err"><span class="dot"></span><span>Telemetry offline</span></div>
+      <div id="state-chip" class="chip"><span class="dot"></span><span>Initializing</span></div>
+      <div id="conn-chip" class="chip err"><span class="dot"></span><span>Backend offline</span></div>
       <div id="camera-chip" class="chip warn"><span class="dot"></span><span>Camera pending</span></div>
-      <div id="voice-chip" class="chip"><span class="dot"></span><span>Voice idle</span></div>
+      <div id="control-chip" class="chip"><span class="dot"></span><span>Manual locked</span></div>
     </div>
   </header>
 
   <main class="dashboard">
-    <section class="stack">
-      <article class="panel visual-panel">
-        <div class="panel-head">
-          <div>
-            <div class="panel-title">Visual Targeting</div>
-            <div class="panel-note">Drag a box or click the camera feed to project a ground point.</div>
+    <!-- ═══ Visual Targeting ═══ -->
+    <article class="panel visual-panel">
+      <div class="panel-head">
+        <div class="panel-title">Visual Targeting</div>
+        <span id="camera-topic" class="chip"><span class="dot"></span><span>Route pending</span></span>
+      </div>
+      <div class="panel-body camera-shell">
+        <div class="camera-toolbar">
+          <div class="flex-row">
+            <button id="clear-selection" class="action-btn" type="button">Clear</button>
+            <button id="project-center" class="action-btn" type="button">Lock Center</button>
           </div>
-          <div class="toolbar-group">
-            <span id="camera-topic" class="chip"><span class="dot"></span><span>Camera route pending</span></span>
+          <span id="selection-status" class="chip"><span class="dot"></span><span>No target</span></span>
+        </div>
+        <div class="camera-stage">
+          <img id="camera-stream" class="camera-stream" alt="">
+          <div id="camera-placeholder" class="camera-placeholder">Live feed unavailable.</div>
+          <div id="camera-overlay" class="camera-overlay">
+            <div class="crosshair"></div>
+            <div id="selection-box" class="selection-box"></div>
           </div>
         </div>
-        <div class="panel-body camera-wrap">
-          <div class="camera-toolbar">
-            <div class="toolbar-group">
-              <button id="clear-selection" class="action-btn" type="button">Clear Selection</button>
-              <button id="project-center" class="action-btn" type="button">Project Center</button>
-            </div>
-            <div class="toolbar-group">
-              <span id="selection-status" class="chip"><span class="dot"></span><span>No target selected</span></span>
-            </div>
-          </div>
-
-          <div class="camera-stage">
-            <img id="camera-stream" class="camera-stream" alt="Live drone camera stream">
-            <div id="camera-placeholder" class="camera-placeholder">Camera stream unavailable. The dashboard still supports telemetry, commands, map tracking, and selection math when a frame source is configured.</div>
-            <div id="camera-overlay" class="camera-overlay">
-              <div class="crosshair"></div>
-              <div id="selection-box" class="selection-box"></div>
-            </div>
-          </div>
-
-          <div class="selection-bar">
-            <div class="selection-card">
-              <div class="selection-title">Selected Target</div>
-              <div id="selection-body" class="selection-body">Choose a point in the camera feed to compute its projected world coordinates.</div>
-            </div>
-            <div class="selection-actions">
-              <button id="orbit-selection" class="action-btn primary" type="button" disabled>Orbit Selected Target</button>
-              <button id="approach-selection" class="action-btn secondary" type="button" disabled>Approach Selected Target</button>
-            </div>
-          </div>
-
-          <div class="voice-grid">
-            <button id="voice-toggle" class="voice-btn" type="button" title="Toggle voice control">Mic</button>
-            <div class="voice-card">
-              <div class="selection-title">Voice Control</div>
-              <div id="voice-transcript" class="voice-transcript">Voice recognition idle.</div>
-              <div class="voice-actions">
-                <input id="voice-command-input" class="voice-input" type="text" placeholder="Quick command: take off 10 meters" autocomplete="off" spellcheck="false">
-                <button id="voice-submit" class="action-btn voice-submit" type="button">Run Command</button>
-              </div>
-              <div id="voice-mode-note" class="voice-hint">Mic dictation works in Chromium browsers. Quick Command works in every browser.</div>
-              <div class="voice-hint">Examples: “take off 10 meters”, “go north 15 meters”, “circle around the left side”, “approach the center target”.</div>
+        <div class="visual-footer">
+          <div class="card">
+            <div class="card-title" style="margin-bottom:3px;">Reticle Target</div>
+            <div class="target-line"><span>Optical</span><strong id="selection-body">Select on video feed</strong></div>
+            <div class="target-line"><span>Spatial</span><strong id="map-target-body">Define via map click</strong></div>
+            <div class="flex-row" style="margin-top:4px;">
+              <button id="orbit-selection" class="action-btn primary" style="flex:1" disabled>Orbit Optic</button>
+              <button id="approach-selection" class="action-btn secondary" style="flex:1" disabled>Approach Optic</button>
             </div>
           </div>
         </div>
-      </article>
+      </div>
+    </article>
 
-      <article class="panel map-panel">
-        <div class="panel-head">
-          <div>
-            <div class="panel-title">Live Map</div>
-            <div class="panel-note">Telemetry SSE drives position, heading, breadcrumb trail, and orbit target markers.</div>
-          </div>
-          <div class="toolbar-group">
-            <label class="toggle">
-              <input id="auto-center" type="checkbox" checked>
-              <span>Auto-center map</span>
-            </label>
-          </div>
-        </div>
-        <div class="panel-body map-wrap">
-          <div class="map-surface">
-            <div id="map"></div>
-          </div>
-          <div class="map-note">
-            <div class="map-card">
-              <h3>Map State</h3>
-              <p id="map-summary">Waiting for config and telemetry.</p>
-              <div class="legend">
-                <div class="legend-row"><span class="legend-swatch swatch-drone"></span><span>Drone position and heading</span></div>
-                <div class="legend-row"><span class="legend-swatch swatch-home"></span><span>Home / geofence center</span></div>
-                <div class="legend-row"><span class="legend-swatch swatch-target"></span><span>Projected or orbit target</span></div>
-                <div class="legend-row"><span class="legend-swatch swatch-fence"></span><span>Configured geofence</span></div>
-              </div>
+    <!-- ═══ Spatial Awareness (Map) ═══ -->
+    <article class="panel map-panel">
+      <div class="panel-head">
+        <div class="panel-title">Spatial Awareness</div>
+        <label class="toggle"><input id="auto-center" type="checkbox" checked><span>Track Asset</span></label>
+      </div>
+      <div class="panel-body map-shell">
+        <div class="map-surface"><div id="map"></div></div>
+        <div class="map-footer">
+          <div class="card">
+            <div class="card-title">Nav Solution</div>
+            <div id="map-summary" style="margin: 2px 0 4px;">Waiting for data stream.</div>
+            <div class="flex-row">
+              <button id="map-target-clear" class="action-btn" type="button">Reset</button>
+              <button id="map-target-orbit" class="action-btn primary" type="button" disabled>Orbit</button>
+              <button id="map-target-approach" class="action-btn secondary" type="button" disabled>Approach</button>
             </div>
-            <div class="map-card">
-              <h3>Selection Hint</h3>
-              <p>Projection assumes a flat ground plane at the home altitude and uses live yaw, pitch, roll, and altitude telemetry.</p>
+          </div>
+          <div class="card" style="display:flex; flex-direction:column; justify-content:center;">
+            <div class="card-title" style="margin-bottom:4px;">Symbology</div>
+            <div class="legend">
+              <div class="legend-row"><span class="legend-swatch swatch-drone"></span>Asset</div>
+              <div class="legend-row"><span class="legend-swatch swatch-home"></span>Home</div>
+              <div class="legend-row"><span class="legend-swatch swatch-target"></span>Objective</div>
+              <div class="legend-row"><span class="legend-swatch swatch-fence"></span>Geofence</div>
             </div>
           </div>
         </div>
-      </article>
-    </section>
+      </div>
+    </article>
 
-    <section class="stack">
-      <article class="panel status-panel">
-        <div class="panel-head">
-          <div>
-            <div class="panel-title">Flight Status</div>
-            <div class="panel-note">Compact operator telemetry tuned for rapid scan under load.</div>
+    <!-- ═══ Telemetry Matrix ═══ -->
+    <article class="panel status-panel">
+      <div class="panel-head">
+        <div class="panel-title">Telemetry Matrix</div>
+      </div>
+      <div class="panel-body">
+        <div class="telemetry-grid">
+          <div class="metric"><div class="metric-label">State</div><div class="metric-value"><span id="t-state" class="state-pill state-disconnected">OFFLINE</span></div><div class="metric-sub" id="t-flight-mode">--</div></div>
+          <div class="metric"><div class="metric-label">Power</div><div class="metric-value" id="t-battery">--%</div><div class="metric-sub" id="t-gps">--</div></div>
+          <div class="metric"><div class="metric-label">Altitude</div><div class="metric-value" id="t-rel-alt">-- m</div><div class="metric-sub" id="t-abs-alt">--</div></div>
+          <div class="metric"><div class="metric-label">Position</div><div class="metric-value" id="t-lat">--</div><div class="metric-sub" id="t-lon">--</div></div>
+          <div class="metric"><div class="metric-label">Attitude</div><div class="metric-value" id="t-yaw">--</div><div class="metric-sub" id="t-pitch">--</div></div>
+          <div class="metric"><div class="metric-label">Roll / Flags</div><div class="metric-value" id="t-roll">--</div><div class="metric-sub" id="t-flags">--</div></div>
+        </div>
+        <div class="monitor-grid">
+          <div class="card monitor-card">
+            <div class="card-title">Runtime Context</div>
+            <div class="target-line"><span>Airframe</span><strong id="runtime-airframe">--</strong></div>
+            <div class="target-line"><span>World</span><strong id="runtime-world">--</strong></div>
+            <div class="target-line"><span>Stack</span><strong id="runtime-stack">--</strong></div>
+            <div class="metric-sub" id="runtime-stack-sub">Waiting for runtime metadata.</div>
+          </div>
+          <div class="card monitor-card">
+            <div class="card-title">Stack Health</div>
+            <div class="target-line"><span>Camera</span><strong id="runtime-camera">--</strong></div>
+            <div class="target-line"><span>Gimbal</span><strong id="runtime-gimbal">--</strong></div>
+            <div class="target-line"><span>Telemetry</span><strong id="runtime-telemetry">--</strong></div>
+            <div class="metric-sub" id="runtime-health-sub">Read-only component checks only.</div>
+          </div>
+          <div class="card monitor-card">
+            <div class="card-title">Thesis Evaluation</div>
+            <div class="target-line"><span>Latest</span><strong id="eval-latest">No results</strong></div>
+            <div class="target-line"><span>Latency</span><strong id="eval-latency">--</strong></div>
+            <div class="target-line"><span>Reliability</span><strong id="eval-reliability">--</strong></div>
+            <div class="target-line"><span>Safety</span><strong id="eval-safety">--</strong></div>
+            <div class="metric-sub" id="eval-sub">Run CLI benchmarks to populate evaluation/results.</div>
           </div>
         </div>
-        <div class="panel-body">
-          <div class="telemetry-grid">
-            <div class="metric">
-              <div class="metric-label">State</div>
-              <div class="metric-value"><span id="t-state" class="state-pill state-disconnected">disconnected</span></div>
-              <div class="metric-sub" id="t-flight-mode">--</div>
-            </div>
-            <div class="metric">
-              <div class="metric-label">Battery</div>
-              <div class="metric-value" id="t-battery">--%</div>
-              <div class="metric-sub" id="t-gps">--</div>
-            </div>
-            <div class="metric">
-              <div class="metric-label">Altitude</div>
-              <div class="metric-value" id="t-rel-alt">-- m</div>
-              <div class="metric-sub" id="t-abs-alt">-- AMSL</div>
-            </div>
-            <div class="metric">
-              <div class="metric-label">Latitude</div>
-              <div class="metric-value" id="t-lat">--</div>
-              <div class="metric-sub" id="t-lon">--</div>
-            </div>
-            <div class="metric">
-              <div class="metric-label">Yaw / Pitch</div>
-              <div class="metric-value" id="t-yaw">--</div>
-              <div class="metric-sub" id="t-pitch">--</div>
-            </div>
-            <div class="metric">
-              <div class="metric-label">Roll / Flags</div>
-              <div class="metric-value" id="t-roll">--</div>
-              <div class="metric-sub" id="t-flags">armed -- | air --</div>
-            </div>
+        <div class="card monitor-flags">
+          <div class="card-title">Readiness Flags</div>
+          <div class="flag-strip">
+            <div id="flag-link" class="chip"><span class="dot"></span><span>Link pending</span></div>
+            <div id="flag-pose" class="chip"><span class="dot"></span><span>Pose pending</span></div>
+            <div id="flag-preflight" class="chip"><span class="dot"></span><span>Preflight pending</span></div>
+            <div id="flag-camera" class="chip"><span class="dot"></span><span>Camera pending</span></div>
+            <div id="flag-gimbal" class="chip"><span class="dot"></span><span>Gimbal pending</span></div>
+            <div id="flag-eval" class="chip"><span class="dot"></span><span>Eval pending</span></div>
           </div>
+          <div class="metric-sub" id="readiness-summary">Monitoring surface warming up.</div>
         </div>
-      </article>
-
-      <article class="panel commands-panel">
-        <div class="panel-head">
-          <div>
-            <div class="panel-title">Command Console</div>
-            <div class="panel-note">All command buttons use the same safety-gated server path as MCP tools.</div>
-          </div>
-        </div>
-        <div class="panel-body">
-          <div class="command-grid">
-            <button class="cmd-btn" type="button" data-command="connect"><span class="cmd-name">Connect</span><span class="cmd-hint">Attach to PX4 backend</span></button>
-            <button class="cmd-btn" type="button" data-command="arm"><span class="cmd-name">Arm</span><span class="cmd-hint">Run preflight gate and arm</span></button>
-            <button class="cmd-btn caution" type="button" data-command="disarm"><span class="cmd-name">Disarm</span><span class="cmd-hint">Stop motors on ground</span></button>
-            <button class="cmd-btn" type="button" id="takeoff-btn"><span class="cmd-name">Takeoff</span><span class="cmd-hint">Climb to configured altitude</span></button>
-            <button class="cmd-btn safe" type="button" data-command="hold"><span class="cmd-name">Hold</span><span class="cmd-hint">Pause movement in place</span></button>
-            <button class="cmd-btn safe" type="button" data-command="rtl"><span class="cmd-name">RTL</span><span class="cmd-hint">Return to launch safely</span></button>
-            <button class="cmd-btn safe" type="button" data-command="land"><span class="cmd-name">Land</span><span class="cmd-hint">Initiate landing</span></button>
-            <button class="cmd-btn" type="button" id="goto-btn"><span class="cmd-name">Goto Relative</span><span class="cmd-hint">Move by bounded N/E offset</span></button>
-          </div>
-
-          <div class="field-grid">
-            <label class="field-group">
-              <span class="field-label">Takeoff Altitude (m)</span>
-              <input id="p-alt" class="field-input" type="number" value="5" min="2" max="120" step="0.5">
-            </label>
-            <label class="field-group">
-              <span class="field-label">Selection Orbit Radius (m)</span>
-              <input id="p-orbit-radius" class="field-input" type="number" value="12" min="5" max="200" step="1">
-            </label>
-            <label class="field-group">
-              <span class="field-label">Goto North (m)</span>
-              <input id="p-north" class="field-input" type="number" value="5" step="1">
-            </label>
-            <label class="field-group">
-              <span class="field-label">Goto East (m)</span>
-              <input id="p-east" class="field-input" type="number" value="0" step="1">
-            </label>
-            <label class="field-group">
-              <span class="field-label">Goto Altitude (m)</span>
-              <input id="p-goto-alt" class="field-input" type="number" value="5" min="2" max="120" step="0.5">
-            </label>
-            <label class="field-group">
-              <span class="field-label">Selection Orbit Speed (m/s)</span>
-              <input id="p-orbit-speed" class="field-input" type="number" value="3" min="0.5" max="15" step="0.5">
-            </label>
-          </div>
-
-          <div id="result-bar" class="result-bar"></div>
-        </div>
-      </article>
-
-      <article class="panel events-panel">
-        <div class="panel-head">
-          <div>
-            <div class="panel-title">Event Log</div>
-            <div class="panel-note">Server-side command results and route activity stream in real time.</div>
-          </div>
-        </div>
-        <div class="panel-body">
+        <div class="events-section card" style="margin-top:6px;">
+          <div class="card-title" style="margin-bottom:3px;">Event Matrix</div>
           <div id="events" class="events"></div>
         </div>
-      </article>
-    </section>
+      </div>
+    </article>
+
+    <!-- ═══ Command Execution ═══ -->
+    <article class="panel commands-panel">
+      <div class="panel-head">
+        <div class="panel-title">Command Execution</div>
+        <span id="command-summary" class="text-muted" style="font-size:9px;">Loading...</span>
+      </div>
+      <div class="panel-body command-shell" style="padding-top:0;">
+        <div class="tabs">
+          <button class="tab-btn active" id="tab-cmd">Commands</button>
+          <button class="tab-btn" id="tab-ai">AI Assistant</button>
+        </div>
+
+        <div id="panel-cmd" class="tab-content">
+          <div id="command-grid" class="command-grid"></div>
+          <div class="field-grid" style="margin-top:8px;">
+            <label class="field-group"><span class="field-label">Takeoff Alt</span><input id="p-alt" class="field-input" type="number" value="5" step="0.5"></label>
+            <label class="field-group"><span class="field-label">Vector N</span><input id="p-north" class="field-input" type="number" value="5" step="1"></label>
+            <label class="field-group"><span class="field-label">Vector E</span><input id="p-east" class="field-input" type="number" value="0" step="1"></label>
+            <label class="field-group"><span class="field-label">Goto Alt</span><input id="p-goto-alt" class="field-input" type="number" value="5" step="0.5"></label>
+            <label class="field-group"><span class="field-label">Orbit Radius</span><input id="p-orbit-radius" class="field-input" type="number" value="12" step="1"></label>
+            <label class="field-group"><span class="field-label">Velocity</span><input id="p-orbit-speed" class="field-input" type="number" value="3" step="0.5"></label>
+          </div>
+        </div>
+
+        <div id="panel-ai" class="tab-content" style="display:none; flex-direction:column;">
+          <div class="chat-card">
+            <div class="chat-head">
+              <div class="card-title" style="margin:0;">Assistant Uplink</div>
+              <label class="toggle"><input id="assistant-bypass" type="checkbox"><span>Auto-Exec</span></label>
+            </div>
+            <div class="chat-body">
+              <div id="chat-log" class="chat-log"><div class="chat-empty">Ready. Use mic or type a command.</div></div>
+              <div class="confirm-bar" id="assistant-confirm-bar">
+                <div id="assistant-confirm-text" style="font-size:10px;"></div>
+                <button id="assistant-confirm" class="action-btn primary" disabled>Commit</button>
+              </div>
+              <div class="chat-compose">
+                <button id="voice-cmd-btn" class="voice-btn" title="Voice input">&#x1F3A4;</button>
+                <input id="assistant-input" class="field-input" style="flex:1;" type="text" placeholder="Enter command..." autocomplete="off">
+                <button id="assistant-preview" class="action-btn secondary">Preview</button>
+                <button id="assistant-run" class="action-btn primary">Send</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </article>
+
+    <!-- ═══ Manual Override ═══ -->
+    <article class="panel controls-panel">
+      <div class="panel-head">
+        <div class="panel-title">Manual Override</div>
+        <label class="toggle"><input id="manual-toggle" type="checkbox"><span id="manual-status">Off</span></label>
+      </div>
+      <div class="panel-body controls-shell">
+        <div id="result-bar" class="result-bar">Awaiting backend connection...</div>
+
+        <div class="manual-core">
+          <div>
+            <div class="manual-group-label">WASD Translate</div>
+            <div class="manual-pad">
+              <button class="key-btn key-w" data-manual-action="move_forward"><span class="key-cap">W</span></button>
+              <button class="key-btn key-a" data-manual-action="move_left"><span class="key-cap">A</span></button>
+              <button class="key-btn key-s" data-manual-action="move_back"><span class="key-cap">S</span></button>
+              <button class="key-btn key-d" data-manual-action="move_right"><span class="key-cap">D</span></button>
+            </div>
+          </div>
+          <div>
+            <div class="manual-group-label">Alt / Yaw</div>
+            <div class="manual-pad">
+              <button class="key-btn key-up" data-manual-action="altitude_up"><span class="key-cap">&#x25B2;</span></button>
+              <button class="key-btn key-left" data-manual-action="yaw_left"><span class="key-cap">&#x25C0;</span></button>
+              <button class="key-btn key-down" data-manual-action="altitude_down"><span class="key-cap">&#x25BC;</span></button>
+              <button class="key-btn key-right" data-manual-action="yaw_right"><span class="key-cap">&#x25B6;</span></button>
+            </div>
+          </div>
+        </div>
+
+        <div class="manual-aux">
+          <button class="key-btn-sm" data-manual-action="gimbal_up"><span class="key-cap">Q</span></button>
+          <span class="manual-group-label" style="margin:0 4px;">Gimbal</span>
+          <button class="key-btn-sm" data-manual-action="gimbal_down"><span class="key-cap">E</span></button>
+        </div>
+
+        <div class="manual-bottom">
+          <span class="field-label">XY</span>
+          <input id="manual-step" class="field-input" type="number" value="3" min="0.5" step="0.5">
+          <span class="field-label">Z</span>
+          <input id="manual-alt-step" class="field-input" type="number" value="1.5" min="0.5" step="0.5">
+        </div>
+
+        <div class="quick-bar">
+          <input id="quick-command-input" class="field-input" type="text" placeholder="Quick command..." autocomplete="off">
+          <button id="quick-command-submit" class="action-btn">Run</button>
+        </div>
+
+        <div class="manual-meta" id="manual-summary">Enable toggle to accept keyboard controls.</div>
+      </div>
+    </article>
   </main>
 </div>
 
-<script
-  src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
-  integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
-  crossorigin=""
-></script>
+<script src="https://unpkg.com/maplibre-gl@^4.7.1/dist/maplibre-gl.js" crossorigin=""></script>
 <script>
 (function(){
+  'use strict';
+
+  /* ── Application State ── */
   const appState = {
     config: null,
     telemetry: null,
+    commands: [],
     history: [],
+    mapTarget: null,
     commandBusy: false,
     selectionBusy: false,
     telemetryES: null,
@@ -474,25 +745,53 @@ button,input{font:inherit}
     droneMarker: null,
     homeMarker: null,
     targetMarker: null,
+    mapTargetMarker: null,
     geofenceCircle: null,
     pathLine: null,
+    backendOnline: false,
+    bootRetryCount: 0,
+    bootRetryTimer: null,
+    assistant: {
+      busy: false,
+      pendingPlan: null,
+      pendingText: '',
+      bypass: false,
+      queue: [],
+    },
     camera: {
       retryTimer: null,
     },
-    voice: {
-      supported: false,
-      recognition: null,
-      listening: false,
+    manual: {
+      enabled: false,
+      activeAction: null,
+      lastIssuedAt: 0,
+      minIntervalMs: 240,
+    },
+    monitoring: {
+      runtime: null,
+      evaluation: null,
+      pollTimer: null,
     },
   };
 
-  const $ = (id) => document.getElementById(id);
+  const MANUAL_KEYMAP = {
+    w: 'move_forward',
+    a: 'move_left',
+    s: 'move_back',
+    d: 'move_right',
+    ArrowUp: 'altitude_up',
+    ArrowDown: 'altitude_down',
+    ArrowLeft: 'yaw_left',
+    ArrowRight: 'yaw_right',
+    q: 'gimbal_up',
+    e: 'gimbal_down',
+  };
 
-  function notify(message, kind) {
-    const bar = $('result-bar');
-    bar.className = 'result-bar visible ' + (kind || 'info');
-    bar.textContent = message;
-  }
+  const MAX_BOOT_RETRIES = 120;
+  const BOOT_RETRY_INTERVAL_MS = 3000;
+
+  /* ── DOM Helpers ── */
+  const $ = (id) => document.getElementById(id);
 
   function esc(value) {
     const node = document.createElement('div');
@@ -500,6 +799,37 @@ button,input{font:inherit}
     return node.innerHTML;
   }
 
+  function notify(message, kind) {
+    const bar = $('result-bar');
+    bar.className = 'result-bar ' + (kind || 'info');
+    bar.textContent = message;
+  }
+
+  function setChip(id, mode, text) {
+    const chip = $(id);
+    if (!chip) return;
+    chip.className = 'chip ' + (mode || '');
+    const span = chip.querySelector('span:last-child');
+    if (span) span.textContent = text;
+  }
+
+  function formatNumber(value, digits) {
+    return value == null || Number.isNaN(value) ? '--' : Number(value).toFixed(digits);
+  }
+
+  function monitorMode(status) {
+    if (status === true || status === 'available' || status === 'healthy' || status === 'ready') return 'ok';
+    if (status === 'external' || status === 'idle' || status === 'unknown' || status === 'degraded') return 'warn';
+    return 'err';
+  }
+
+  function monitorLabel(entry, fallback) {
+    if (!entry) return fallback;
+    if (entry.headline) return entry.headline;
+    return fallback;
+  }
+
+  /* ── Network ── */
   async function fetchJSON(url, options) {
     const response = await fetch(url, options || {});
     const data = await response.json();
@@ -512,58 +842,141 @@ button,input{font:inherit}
     return data;
   }
 
-  function setChip(id, mode, text) {
-    const chip = $(id);
-    chip.className = 'chip ' + (mode || '');
-    chip.querySelector('span:last-child').textContent = text;
+  /* ── Telemetry ── */
+  function currentRelativeAltitude() {
+    if (appState.telemetry && appState.telemetry.relative_altitude_m != null) {
+      return appState.telemetry.relative_altitude_m;
+    }
+    return parseFloat($('p-goto-alt').value) || parseFloat($('p-alt').value) || 5;
   }
 
-  function formatNumber(value, digits) {
-    return value == null || Number.isNaN(value) ? '--' : Number(value).toFixed(digits);
+  function commandDescriptor(command) {
+    const name = command.name;
+    if (name === 'guided_takeoff' || name === 'takeoff') return 'ALT';
+    if (name === 'goto_relative') return 'MOVE';
+    if (name === 'get_status' || name === 'get_telemetry') return 'SYNC';
+    return 'SAFE';
   }
 
   function updateTelemetry(snapshot) {
     appState.telemetry = snapshot;
     const state = snapshot.state || 'disconnected';
-    $('t-state').textContent = state;
+    $('t-state').textContent = state.toUpperCase();
     $('t-state').className = 'state-pill state-' + state;
     $('t-flight-mode').textContent = snapshot.flight_mode || '--';
-    $('t-battery').textContent = snapshot.battery_percent != null ? snapshot.battery_percent.toFixed(1) + '%' : '--%';
-    $('t-gps').textContent = snapshot.gps_satellites != null ? snapshot.gps_satellites + ' satellites' : '-- satellites';
+    $('t-battery').textContent = snapshot.battery_percent != null ? snapshot.battery_percent.toFixed(0) + '%' : '--%';
+    $('t-gps').textContent = snapshot.gps_satellites != null ? snapshot.gps_satellites + ' sat' : '--';
     $('t-rel-alt').textContent = snapshot.relative_altitude_m != null ? snapshot.relative_altitude_m.toFixed(1) + ' m' : '-- m';
-    $('t-abs-alt').textContent = snapshot.absolute_altitude_m != null ? snapshot.absolute_altitude_m.toFixed(1) + ' AMSL' : '-- AMSL';
+    $('t-abs-alt').textContent = snapshot.absolute_altitude_m != null ? snapshot.absolute_altitude_m.toFixed(1) + ' AMSL' : '--';
     $('t-lat').textContent = snapshot.latitude_deg != null ? snapshot.latitude_deg.toFixed(6) : '--';
     $('t-lon').textContent = snapshot.longitude_deg != null ? snapshot.longitude_deg.toFixed(6) : '--';
     $('t-yaw').textContent = snapshot.yaw_deg != null ? snapshot.yaw_deg.toFixed(1) + '°' : '--';
-    $('t-pitch').textContent = snapshot.pitch_deg != null ? 'pitch ' + snapshot.pitch_deg.toFixed(1) + '°' : '--';
+    $('t-pitch').textContent = snapshot.pitch_deg != null ? 'p ' + snapshot.pitch_deg.toFixed(1) + '°' : '--';
     $('t-roll').textContent = snapshot.roll_deg != null ? snapshot.roll_deg.toFixed(1) + '°' : '--';
-    $('t-flags').textContent = 'armed ' + (snapshot.armed ? 'yes' : 'no') + ' | air ' + (snapshot.in_air ? 'yes' : 'no');
+    $('t-flags').textContent = (snapshot.armed ? 'ARM' : 'SAFE') + ' | ' + (snapshot.in_air ? 'AIR' : 'GND');
 
-    setChip('state-chip', state === 'fault' || state === 'disconnected' ? 'err' : (state === 'airborne' ? 'live' : 'ok'), 'State ' + state);
+    setChip('state-chip',
+      state === 'fault' || state === 'disconnected' ? 'err' : (state === 'airborne' ? 'live' : 'ok'),
+      state.charAt(0).toUpperCase() + state.slice(1)
+    );
     setChip('conn-chip', 'ok', 'Telemetry live');
 
     updateMapWithTelemetry(snapshot);
     updateMapSummary(snapshot);
+    updateManualUI();
   }
 
   function updateMapSummary(snapshot) {
     const parts = [];
     if (snapshot.latitude_deg != null && snapshot.longitude_deg != null) {
-      parts.push('Drone at ' + snapshot.latitude_deg.toFixed(5) + ', ' + snapshot.longitude_deg.toFixed(5));
+      parts.push(snapshot.latitude_deg.toFixed(5) + ', ' + snapshot.longitude_deg.toFixed(5));
     } else {
-      parts.push('Awaiting valid position telemetry');
+      parts.push('Awaiting position');
     }
-    if (snapshot.yaw_deg != null) {
-      parts.push('heading ' + snapshot.yaw_deg.toFixed(0) + '°');
-    }
-    if (snapshot.relative_altitude_m != null) {
-      parts.push('alt ' + snapshot.relative_altitude_m.toFixed(1) + ' m AGL');
+    if (snapshot.yaw_deg != null) parts.push('hdg ' + snapshot.yaw_deg.toFixed(0) + '°');
+    if (snapshot.relative_altitude_m != null) parts.push(snapshot.relative_altitude_m.toFixed(1) + ' m AGL');
+    if (appState.mapTarget) {
+      parts.push('tgt ' + appState.mapTarget.latitude_deg.toFixed(5) + ', ' + appState.mapTarget.longitude_deg.toFixed(5));
     }
     $('map-summary').textContent = parts.join(' | ');
   }
 
+  /* ── Thesis Monitoring ── */
+  function updateRuntimeHealth(runtime) {
+    appState.monitoring.runtime = runtime;
+    if (!runtime) return;
+
+    var airframe = runtime.airframe || {};
+    var world = runtime.world || {};
+    var stack = runtime.stack || {};
+    var camera = runtime.camera || {};
+    var gimbal = runtime.gimbal || {};
+    var readiness = runtime.readiness || {};
+    var flags = readiness.flags || {};
+
+    $('runtime-airframe').textContent = airframe.label || airframe.make_target || airframe.requested_model || '--';
+    $('runtime-world').textContent = world.label || '--';
+    $('runtime-stack').textContent = (stack.status || '--').toUpperCase();
+    $('runtime-stack-sub').textContent = stack.summary || 'Runtime metadata unavailable.';
+
+    $('runtime-camera').textContent = camera.available ? 'STREAMING' : (camera.enabled ? 'WAITING' : 'DISABLED');
+    $('runtime-gimbal').textContent = (gimbal.status || 'unknown').toUpperCase();
+    $('runtime-telemetry').textContent = runtime.telemetry && runtime.telemetry.connected ? 'LINKED' : 'IDLE';
+    $('runtime-health-sub').textContent = gimbal.reason || camera.reason || 'Read-only component checks only.';
+
+    setChip('flag-link', flags.telemetry_link ? 'ok' : 'warn', flags.telemetry_link ? 'Link ready' : 'Link pending');
+    setChip('flag-pose', flags.pose ? 'ok' : 'warn', flags.pose ? 'Pose ready' : 'Pose pending');
+    setChip('flag-preflight', flags.preflight ? 'ok' : 'warn', flags.preflight ? 'Preflight ready' : 'Preflight blocked');
+    setChip('flag-camera', flags.camera ? 'ok' : (camera.enabled ? 'warn' : 'err'), flags.camera ? 'Camera ready' : (camera.enabled ? 'Camera pending' : 'Camera off'));
+    setChip('flag-gimbal', flags.gimbal ? 'ok' : monitorMode(gimbal.status), flags.gimbal ? 'Gimbal ready' : ((gimbal.status || 'unknown') === 'disabled' ? 'Gimbal off' : 'Gimbal pending'));
+
+    var evalReady = !!(appState.monitoring.evaluation && appState.monitoring.evaluation.readiness && appState.monitoring.evaluation.readiness.ready_for_review);
+    setChip('flag-eval', evalReady ? 'ok' : 'warn', evalReady ? 'Eval ready' : 'Eval pending');
+    $('readiness-summary').textContent = readiness.summary || 'Waiting for runtime readiness.';
+  }
+
+  function updateEvaluationSummary(summary) {
+    appState.monitoring.evaluation = summary;
+    if (!summary) return;
+
+    var latest = summary.latest_run || null;
+    var benchmarks = summary.benchmarks || {};
+    var latency = benchmarks.latency || null;
+    var reliability = benchmarks.reliability || null;
+    var safety = benchmarks.safety || null;
+
+    $('eval-latest').textContent = latest ? (latest.benchmark + ' @ ' + (latest.timestamp || 'unknown')) : 'No results';
+    $('eval-latency').textContent = monitorLabel(latency, 'Missing');
+    $('eval-reliability').textContent = monitorLabel(reliability, 'Missing');
+    $('eval-safety').textContent = monitorLabel(safety, 'Missing');
+    $('eval-sub').textContent = summary.summary_line || 'Evaluation summary unavailable.';
+
+    var evalReady = !!(summary.readiness && summary.readiness.ready_for_review);
+    setChip('flag-eval', evalReady ? 'ok' : 'warn', evalReady ? 'Eval ready' : 'Eval pending');
+    if (appState.monitoring.runtime && appState.monitoring.runtime.readiness && appState.monitoring.runtime.readiness.summary) {
+      $('readiness-summary').textContent = appState.monitoring.runtime.readiness.summary;
+    }
+  }
+
+  async function refreshMonitoring() {
+    try {
+      updateRuntimeHealth(await fetchJSON('/dashboard/api/runtime-health'));
+    } catch (_) { /* monitoring is optional */ }
+
+    try {
+      updateEvaluationSummary(await fetchJSON('/dashboard/api/evaluation-summary'));
+    } catch (_) { /* monitoring is optional */ }
+  }
+
+  function startMonitoringPolling() {
+    if (appState.monitoring.pollTimer !== null) window.clearInterval(appState.monitoring.pollTimer);
+    appState.monitoring.pollTimer = window.setInterval(refreshMonitoring, 10000);
+  }
+
+  /* ── Events ── */
   function appendEvent(event) {
     const container = $('events');
+    if (!container) return;
     const row = document.createElement('div');
     const ok = event.data && event.data.success === true;
     const err = event.data && event.data.success === false;
@@ -574,141 +987,276 @@ button,input{font:inherit}
       '<div class="event-kind">' + esc(event.kind || 'event') + '</div>' +
       '<div class="event-msg">' + esc(event.summary || '') + '</div>';
     container.prepend(row);
-    while (container.children.length > 200) {
-      container.lastChild.remove();
+    while (container.children.length > 8) container.lastChild.remove();
+    appendChatEvent(event);
+  }
+
+  /* ── Chat ── */
+  function appendChatRow(role, text, traces) {
+    const container = $('chat-log');
+    if (!container) return;
+    const empty = container.querySelector('.chat-empty');
+    if (empty) empty.remove();
+    const row = document.createElement('div');
+    row.className = 'chat-row ' + role;
+    row.innerHTML =
+      '<div class="chat-role">' + esc(role) + '</div>' +
+      '<div class="chat-text">' + esc(text || '') + '</div>';
+    if (Array.isArray(traces) && traces.length) {
+      const traceList = document.createElement('div');
+      traceList.className = 'trace-list';
+      traces.forEach(function(trace) {
+        const traceRow = document.createElement('div');
+        traceRow.className = 'trace-item ' + (trace.success ? 'ok' : 'err');
+        traceRow.innerHTML =
+          '<div class="trace-name">' + esc(trace.command || 'tool') + '</div>' +
+          '<div class="trace-meta">' + esc(trace.message || '') + '</div>';
+        traceList.appendChild(traceRow);
+      });
+      row.appendChild(traceList);
+    }
+    container.appendChild(row);
+    container.scrollTop = container.scrollHeight;
+  }
+
+  function appendChatEvent(event) {
+    if (!event || !event.kind) return;
+    if (event.kind === 'assistant_plan') {
+      const data = event.data || {};
+      if (data.operator_text) appendChatRow('operator', data.operator_text, null);
+      appendChatRow('assistant', data.assistant_text || 'Planning command.', data.proposed_calls || []);
+      if (data.fallback_reason) appendChatRow('system', data.fallback_reason, null);
+      return;
+    }
+    if (event.kind === 'assistant_execute') {
+      const data = event.data || {};
+      appendChatRow('system', data.assistant_text || 'Executed command.', data.executed_calls || []);
+      return;
+    }
+    if (event.kind === 'target_update') {
+      const data = event.data || {};
+      const target = data.target;
+      if (target) {
+        appendChatRow('system', 'Target: ' + target.latitude_deg.toFixed(6) + ', ' + target.longitude_deg.toFixed(6), null);
+      } else {
+        appendChatRow('system', 'Map target cleared.', null);
+      }
     }
   }
 
-  function makeDivIcon(className) {
-    return L.divIcon({
-      className: '',
-      html: '<div class="' + className + '"></div>',
-      iconSize: [22, 22],
-      iconAnchor: [11, 11],
-    });
+  /* ── Map ── */
+  function makeDivIconEl(className) {
+    var el = document.createElement('div');
+    el.className = className;
+    return el;
+  }
+
+  function circleGeoJSON(lat, lon, radiusM) {
+    var coords = [];
+    var steps = 64;
+    var earthR = 6371000;
+    for (var i = 0; i <= steps; i++) {
+      var angle = (i / steps) * 2 * Math.PI;
+      var dLat = (radiusM * Math.cos(angle)) / earthR * (180 / Math.PI);
+      var dLon = (radiusM * Math.sin(angle)) / (earthR * Math.cos(lat * Math.PI / 180)) * (180 / Math.PI);
+      coords.push([lon + dLon, lat + dLat]);
+    }
+    return { type: 'Feature', geometry: { type: 'Polygon', coordinates: [coords] } };
   }
 
   function initMap() {
-    if (typeof L === 'undefined' || !appState.config) {
-      $('map-summary').textContent = 'Leaflet or dashboard config unavailable.';
+    if (typeof maplibregl === 'undefined' || !appState.config) {
+      $('map-summary').textContent = 'Map library or config unavailable.';
       return;
     }
 
-    appState.map = L.map('map', {
-      zoomControl: true,
-      attributionControl: true,
-    }).setView(
-      [appState.config.geofence_center_lat, appState.config.geofence_center_lon],
-      17
-    );
+    var centerLon = appState.config.geofence_center_lon;
+    var centerLat = appState.config.geofence_center_lat;
 
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      maxZoom: 20,
-      attribution: '&copy; OpenStreetMap contributors',
-    }).addTo(appState.map);
+    appState.map = new maplibregl.Map({
+      container: 'map',
+      style: 'https://tiles.openfreemap.org/styles/liberty',
+      center: [centerLon, centerLat],
+      zoom: 17,
+      pitch: 45,
+      bearing: 0,
+      attributionControl: false,
+    });
 
-    appState.geofenceCircle = L.circle(
-      [appState.config.geofence_center_lat, appState.config.geofence_center_lon],
-      {
-        radius: appState.config.geofence_radius_m,
-        color: '#58d7ff',
-        weight: 1.5,
-        fillColor: '#58d7ff',
-        fillOpacity: 0.06,
+    var homeEl = makeDivIconEl('home-icon');
+    var droneEl = makeDivIconEl('drone-icon');
+    var targetEl = makeDivIconEl('target-icon');
+    var mapTargetEl = makeDivIconEl('target-icon');
+    targetEl.style.display = 'none';
+    mapTargetEl.style.display = 'none';
+
+    appState.homeMarker = new maplibregl.Marker({ element: homeEl, anchor: 'center' })
+      .setLngLat([centerLon, centerLat])
+      .setPopup(new maplibregl.Popup({ closeButton: false }).setHTML('Home'))
+      .addTo(appState.map);
+
+    appState.droneMarker = new maplibregl.Marker({ element: droneEl, anchor: 'center' })
+      .setLngLat([centerLon, centerLat])
+      .setPopup(new maplibregl.Popup({ closeButton: false }).setHTML('Drone'))
+      .addTo(appState.map);
+
+    appState.targetMarker = new maplibregl.Marker({ element: targetEl, anchor: 'center' })
+      .setLngLat([centerLon, centerLat])
+      .addTo(appState.map);
+
+    appState.mapTargetMarker = new maplibregl.Marker({ element: mapTargetEl, anchor: 'center' })
+      .setLngLat([centerLon, centerLat])
+      .addTo(appState.map);
+
+    appState.map.on('load', function() {
+      var layers = appState.map.getStyle().layers;
+      var labelLayerId;
+      for (var i = 0; i < layers.length; i++) {
+        if (layers[i].type === 'symbol' && layers[i].layout && layers[i].layout['text-field']) {
+          labelLayerId = layers[i].id;
+          break;
+        }
       }
-    ).addTo(appState.map);
 
-    appState.homeMarker = L.marker(
-      [appState.config.geofence_center_lat, appState.config.geofence_center_lon],
-      { icon: makeDivIcon('home-icon') }
-    ).addTo(appState.map).bindPopup('Home / geofence center');
+      appState.map.addSource('geofence', {
+        type: 'geojson',
+        data: circleGeoJSON(centerLat, centerLon, appState.config.geofence_radius_m || 200),
+      });
+      appState.map.addLayer({ id: 'geofence-fill', type: 'fill', source: 'geofence',
+        paint: { 'fill-color': '#5dc8d8', 'fill-opacity': 0.05 } }, labelLayerId);
+      appState.map.addLayer({ id: 'geofence-border', type: 'line', source: 'geofence',
+        paint: { 'line-color': '#5dc8d8', 'line-width': 1.5 } }, labelLayerId);
 
-    appState.droneMarker = L.marker(
-      [appState.config.geofence_center_lat, appState.config.geofence_center_lon],
-      { icon: makeDivIcon('drone-icon') }
-    ).addTo(appState.map).bindPopup('Drone');
+      appState.map.addSource('drone-path', {
+        type: 'geojson',
+        data: { type: 'Feature', geometry: { type: 'LineString', coordinates: [] } },
+      });
+      appState.map.addLayer({ id: 'drone-path', type: 'line', source: 'drone-path',
+        paint: { 'line-color': '#79a9ff', 'line-opacity': 0.75, 'line-width': 2 } });
 
-    appState.targetMarker = L.marker(
-      [appState.config.geofence_center_lat, appState.config.geofence_center_lon],
-      { icon: makeDivIcon('target-icon'), opacity: 0.0 }
-    ).addTo(appState.map);
+      if (!appState.map.getLayer('3d-buildings')) {
+        appState.map.addLayer({
+          id: '3d-buildings',
+          source: 'openmaptiles',
+          'source-layer': 'building',
+          type: 'fill-extrusion',
+          minzoom: 14,
+          paint: {
+            'fill-extrusion-color': '#2a3a5a',
+            'fill-extrusion-height': ['coalesce', ['get', 'render_height'], ['get', 'height'], 5],
+            'fill-extrusion-base': ['coalesce', ['get', 'render_min_height'], ['get', 'min_height'], 0],
+            'fill-extrusion-opacity': 0.75,
+          },
+        }, labelLayerId);
+      }
 
-    appState.pathLine = L.polyline([], {
-      color: '#4aa3ff',
-      opacity: 0.85,
-      weight: 2.5,
-    }).addTo(appState.map);
+      appState.mapReady = true;
+    });
 
-    appState.mapReady = true;
+    appState.map.on('click', function(event) {
+      setMapTarget({
+        latitude_deg: event.lngLat.lat,
+        longitude_deg: event.lngLat.lng,
+        label: 'Map target',
+        source: 'map',
+      });
+    });
   }
 
   function rotateDroneMarker(yawDeg) {
     if (!appState.droneMarker) return;
-    const icon = appState.droneMarker.getElement();
+    var icon = appState.droneMarker.getElement();
     if (!icon) return;
-    icon.style.transformOrigin = '11px 11px';
+    icon.style.transformOrigin = '10px 10px';
     icon.style.transform = 'rotate(' + (yawDeg || 0) + 'deg)';
   }
 
   function updateMapWithTelemetry(snapshot) {
-    if (!appState.mapReady || snapshot.latitude_deg == null || snapshot.longitude_deg == null) {
-      return;
-    }
-
-    const latLng = [snapshot.latitude_deg, snapshot.longitude_deg];
-    appState.droneMarker.setLatLng(latLng);
+    if (!appState.mapReady || snapshot.latitude_deg == null || snapshot.longitude_deg == null) return;
+    var lngLat = [snapshot.longitude_deg, snapshot.latitude_deg];
+    appState.droneMarker.setLngLat(lngLat);
     rotateDroneMarker(snapshot.yaw_deg || 0);
-
-    const history = appState.history;
-    const last = history.length ? history[history.length - 1] : null;
-    if (!last || last[0] !== latLng[0] || last[1] !== latLng[1]) {
-      history.push(latLng);
-      if (history.length > 200) history.shift();
-      appState.pathLine.setLatLngs(history);
+    var history = appState.history;
+    var last = history.length ? history[history.length - 1] : null;
+    if (!last || last[0] !== lngLat[0] || last[1] !== lngLat[1]) {
+      history.push(lngLat);
+      if (history.length > 160) history.shift();
+      var src = appState.map.getSource('drone-path');
+      if (src) src.setData({ type: 'Feature', geometry: { type: 'LineString', coordinates: history } });
     }
-
     if ($('auto-center').checked) {
-      appState.map.panTo(latLng, { animate: true, duration: 0.35 });
+      appState.map.panTo(lngLat, { animate: true });
     }
   }
 
   function updateTargetMarker(projection) {
     if (!projection || !appState.mapReady) return;
-    appState.targetMarker.setLatLng([projection.latitude_deg, projection.longitude_deg]);
-    appState.targetMarker.setOpacity(1.0);
-    appState.targetMarker.bindPopup(
-      'Target<br>' +
-      projection.latitude_deg.toFixed(6) + ', ' +
-      projection.longitude_deg.toFixed(6)
+    var el = appState.targetMarker.getElement();
+    if (el) el.style.display = '';
+    appState.targetMarker.setLngLat([projection.longitude_deg, projection.latitude_deg]);
+    appState.targetMarker.setPopup(
+      new maplibregl.Popup({ closeButton: false }).setHTML(
+        'Target<br>' + projection.latitude_deg.toFixed(6) + ', ' + projection.longitude_deg.toFixed(6)
+      )
     );
   }
 
+  function updateMapTargetMarker(target) {
+    if (!appState.mapReady || !appState.mapTargetMarker) return;
+    var el = appState.mapTargetMarker.getElement();
+    if (!target) {
+      if (el) el.style.display = 'none';
+      $('map-target-body').textContent = 'Define via map click';
+      $('map-target-orbit').disabled = true;
+      $('map-target-approach').disabled = true;
+      return;
+    }
+    appState.mapTargetMarker.setLngLat([target.longitude_deg, target.latitude_deg]);
+    if (el) el.style.display = '';
+    appState.mapTargetMarker.setPopup(
+      new maplibregl.Popup({ closeButton: false }).setHTML(
+        'Map target<br>' + target.latitude_deg.toFixed(6) + ', ' + target.longitude_deg.toFixed(6)
+      )
+    );
+    $('map-target-body').textContent = target.latitude_deg.toFixed(6) + ', ' + target.longitude_deg.toFixed(6);
+    $('map-target-orbit').disabled = appState.commandBusy || appState.selectionBusy;
+    $('map-target-approach').disabled = appState.commandBusy || appState.selectionBusy;
+  }
+
+  /* ── Config & Boot ── */
   async function loadConfig() {
     appState.config = await fetchJSON('/dashboard/api/config');
-    const camera = appState.config.camera || {};
-    const cameraLabel = camera.available ? 'Camera ready' : (camera.reason || 'Camera unavailable');
-    setChip(
-      'camera-chip',
-      camera.available ? 'ok' : (camera.enabled ? 'warn' : ''),
-      cameraLabel
-    );
-    const topic = camera.topic || 'camera route';
-    $('camera-topic').querySelector('span:last-child').textContent = topic;
-  }
-
-  async function refreshCameraConfig() {
-    const config = await fetchJSON('/dashboard/api/config');
-    appState.config = config;
-    const camera = config.camera || {};
+    var camera = appState.config.camera || {};
+    var manual = appState.config.manual_control || {};
+    $('p-alt').value = appState.config.default_takeoff_altitude_m || 5;
+    $('p-goto-alt').value = appState.config.default_takeoff_altitude_m || 5;
+    $('manual-step').value = manual.translation_step_m || 3;
+    $('manual-alt-step').value = manual.altitude_step_m || 1.5;
     setChip(
       'camera-chip',
       camera.available ? 'ok' : (camera.enabled ? 'warn' : ''),
       camera.available ? 'Camera ready' : (camera.reason || 'Camera unavailable')
     );
-    $('camera-topic').querySelector('span:last-child').textContent = camera.topic || 'camera route';
-    return camera;
+    var topicSpan = $('camera-topic').querySelector('span:last-child');
+    if (topicSpan) topicSpan.textContent = camera.topic || 'camera route';
+    updateManualUI();
   }
 
+  async function loadCommandManifest() {
+    var data = await fetchJSON('/dashboard/api/commands');
+    appState.commands = Array.isArray(data.commands) ? data.commands : [];
+    renderCommands();
+  }
+
+  async function loadSelectedTarget() {
+    try {
+      var data = await fetchJSON('/dashboard/api/target');
+      appState.mapTarget = data && data.target ? data.target : null;
+      updateMapTargetMarker(appState.mapTarget);
+    } catch (_) { /* target endpoint is optional */ }
+  }
+
+  /* ── Camera ── */
   function clearCameraRetry() {
     if (appState.camera.retryTimer !== null) {
       window.clearTimeout(appState.camera.retryTimer);
@@ -717,18 +1265,29 @@ button,input{font:inherit}
   }
 
   function cameraPlaceholderText(camera) {
-    if (!camera) {
-      return 'Camera configuration is unavailable.';
-    }
-    return camera.reason || 'Camera stream unavailable. Retrying until frames arrive.';
+    if (!camera) return 'Camera configuration unavailable.';
+    return camera.reason || 'Waiting for camera stream...';
+  }
+
+  async function refreshCameraConfig() {
+    var config = await fetchJSON('/dashboard/api/config');
+    appState.config = config;
+    var camera = config.camera || {};
+    setChip('camera-chip',
+      camera.available ? 'ok' : (camera.enabled ? 'warn' : ''),
+      camera.available ? 'Camera ready' : (camera.reason || 'Camera unavailable')
+    );
+    var topicSpan = $('camera-topic').querySelector('span:last-child');
+    if (topicSpan) topicSpan.textContent = camera.topic || 'camera route';
+    return camera;
   }
 
   function scheduleCameraRetry(delayMs) {
     clearCameraRetry();
-    appState.camera.retryTimer = window.setTimeout(async () => {
+    appState.camera.retryTimer = window.setTimeout(async function() {
       appState.camera.retryTimer = null;
       try {
-        const camera = await refreshCameraConfig();
+        var camera = await refreshCameraConfig();
         loadCameraStream(camera);
       } catch (_) {
         scheduleCameraRetry(delayMs);
@@ -737,8 +1296,8 @@ button,input{font:inherit}
   }
 
   function loadCameraStream(camera) {
-    const image = $('camera-stream');
-    const placeholder = $('camera-placeholder');
+    var image = $('camera-stream');
+    var placeholder = $('camera-placeholder');
     clearCameraRetry();
     if (!camera || !camera.enabled) {
       image.removeAttribute('src');
@@ -746,64 +1305,55 @@ button,input{font:inherit}
       placeholder.classList.remove('hidden');
       return;
     }
-
     placeholder.textContent = cameraPlaceholderText(camera);
     placeholder.classList.remove('hidden');
     image.src = camera.stream_url + (camera.stream_url.indexOf('?') === -1 ? '?' : '&') + 'ts=' + Date.now();
   }
 
   function initCamera() {
-    const camera = appState.config && appState.config.camera ? appState.config.camera : null;
-    const image = $('camera-stream');
-    const placeholder = $('camera-placeholder');
-    image.addEventListener('load', () => {
+    var camera = appState.config && appState.config.camera ? appState.config.camera : null;
+    var image = $('camera-stream');
+    var placeholder = $('camera-placeholder');
+    image.addEventListener('load', function() {
       placeholder.classList.add('hidden');
       setChip('camera-chip', 'ok', 'Camera streaming');
     });
-    image.addEventListener('error', async () => {
+    image.addEventListener('error', async function() {
       placeholder.classList.remove('hidden');
       setChip('camera-chip', camera && camera.enabled ? 'warn' : 'err', 'Waiting for camera');
       try {
-        const latestCamera = await refreshCameraConfig();
+        var latestCamera = await refreshCameraConfig();
         placeholder.textContent = cameraPlaceholderText(latestCamera);
       } catch (_) {
-        placeholder.textContent = 'Camera stream unavailable. Retrying until frames arrive.';
+        placeholder.textContent = 'Camera unavailable. Retrying...';
       }
       scheduleCameraRetry(2500);
     });
     loadCameraStream(camera);
-    if (!camera || !camera.available) {
-      scheduleCameraRetry(2500);
-    }
+    if (!camera || !camera.available) scheduleCameraRetry(2500);
   }
 
+  /* ── Selection ── */
   function selectionToSummary(selection) {
     if (!selection || !selection.projection) {
-      return 'Choose a point in the camera feed to compute its projected world coordinates.';
+      return 'Select a point in the camera feed.';
     }
-    const point = selection.projection;
+    var p = selection.projection;
     return [
-      'screen (' + selection.u.toFixed(1) + ', ' + selection.v.toFixed(1) + ')',
-      'lat ' + point.latitude_deg.toFixed(6),
-      'lon ' + point.longitude_deg.toFixed(6),
-      'offset N ' + point.north_m.toFixed(1) + ' m / E ' + point.east_m.toFixed(1) + ' m',
-      'distance ' + point.distance_m.toFixed(1) + ' m'
+      'px ' + selection.u.toFixed(0) + ',' + selection.v.toFixed(0),
+      p.latitude_deg.toFixed(6),
+      p.longitude_deg.toFixed(6),
+      p.distance_m.toFixed(1) + 'm'
     ].join(' | ');
   }
 
   function updateSelectionUI() {
-    const active = !!(appState.selection && appState.selection.projection);
+    var active = !!(appState.selection && appState.selection.projection);
     $('selection-body').textContent = selectionToSummary(appState.selection);
     $('orbit-selection').disabled = !active || appState.selectionBusy;
     $('approach-selection').disabled = !active || appState.selectionBusy;
-    setChip(
-      'selection-status',
-      active ? 'ok' : '',
-      active ? 'Target projected' : 'No target selected'
-    );
-    if (active) {
-      updateTargetMarker(appState.selection.projection);
-    }
+    setChip('selection-status', active ? 'ok' : '', active ? 'Projected' : 'No target');
+    if (active) updateTargetMarker(appState.selection.projection);
   }
 
   function clearSelection() {
@@ -811,32 +1361,28 @@ button,input{font:inherit}
     $('selection-box').classList.remove('visible');
     $('selection-box').style.width = '0px';
     $('selection-box').style.height = '0px';
-    if (appState.targetMarker) {
-      appState.targetMarker.setOpacity(0.0);
-    }
+    if (appState.targetMarker) { var _tel = appState.targetMarker.getElement(); if (_tel) _tel.style.display = 'none'; }
     updateSelectionUI();
   }
 
   function overlayPoint(event) {
-    const overlay = $('camera-overlay');
-    const rect = overlay.getBoundingClientRect();
-    const x = Math.max(0, Math.min(rect.width, event.clientX - rect.left));
-    const y = Math.max(0, Math.min(rect.height, event.clientY - rect.top));
-    const params = appState.config && appState.config.camera ? appState.config.camera.params : null;
-    const widthPx = params ? params.width_px : 320;
-    const heightPx = params ? params.height_px : 240;
+    var overlay = $('camera-overlay');
+    var rect = overlay.getBoundingClientRect();
+    var x = Math.max(0, Math.min(rect.width, event.clientX - rect.left));
+    var y = Math.max(0, Math.min(rect.height, event.clientY - rect.top));
+    var params = appState.config && appState.config.camera ? appState.config.camera.params : null;
+    var widthPx = params ? params.width_px : 320;
+    var heightPx = params ? params.height_px : 240;
     return {
-      x: x,
-      y: y,
-      rectWidth: rect.width,
-      rectHeight: rect.height,
-      u: (x / rect.width) * widthPx,
-      v: (y / rect.height) * heightPx,
+      x: x, y: y,
+      rectWidth: rect.width, rectHeight: rect.height,
+      u: rect.width ? (x / rect.width) * widthPx : widthPx / 2,
+      v: rect.height ? (y / rect.height) * heightPx : heightPx / 2,
     };
   }
 
   function setSelectionBox(left, top, width, height) {
-    const box = $('selection-box');
+    var box = $('selection-box');
     box.classList.add('visible');
     box.style.left = left + 'px';
     box.style.top = top + 'px';
@@ -848,20 +1394,16 @@ button,input{font:inherit}
     appState.selectionBusy = true;
     updateSelectionUI();
     try {
-      const projection = await fetchJSON('/dashboard/api/project_pixel', {
+      var projection = await fetchJSON('/dashboard/api/project_pixel', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ u: selection.u, v: selection.v }),
       });
-      appState.selection = {
-        ...selection,
-        projection: projection,
-      };
+      appState.selection = Object.assign({}, selection, { projection: projection });
       updateSelectionUI();
-      notify('Target projected: ' + projection.latitude_deg.toFixed(6) + ', ' + projection.longitude_deg.toFixed(6), 'info');
+      notify('Projected: ' + projection.latitude_deg.toFixed(6) + ', ' + projection.longitude_deg.toFixed(6), 'info');
     } catch (error) {
-      const message = error && error.message ? error.message : 'Projection failed';
-      notify(message, 'err');
+      notify(error && error.message ? error.message : 'Projection failed', 'err');
     } finally {
       appState.selectionBusy = false;
       updateSelectionUI();
@@ -869,73 +1411,69 @@ button,input{font:inherit}
   }
 
   function initSelection() {
-    const overlay = $('camera-overlay');
+    var overlay = $('camera-overlay');
 
-    overlay.addEventListener('pointerdown', (event) => {
-      const point = overlayPoint(event);
+    overlay.addEventListener('pointerdown', function(event) {
+      var point = overlayPoint(event);
       appState.selecting = true;
       appState.selectionStart = point;
       setSelectionBox(point.x, point.y, 1, 1);
     });
 
-    overlay.addEventListener('pointermove', (event) => {
+    overlay.addEventListener('pointermove', function(event) {
       if (!appState.selecting || !appState.selectionStart) return;
-      const current = overlayPoint(event);
-      const left = Math.min(appState.selectionStart.x, current.x);
-      const top = Math.min(appState.selectionStart.y, current.y);
-      const width = Math.max(2, Math.abs(current.x - appState.selectionStart.x));
-      const height = Math.max(2, Math.abs(current.y - appState.selectionStart.y));
+      var current = overlayPoint(event);
+      var left = Math.min(appState.selectionStart.x, current.x);
+      var top = Math.min(appState.selectionStart.y, current.y);
+      var width = Math.max(2, Math.abs(current.x - appState.selectionStart.x));
+      var height = Math.max(2, Math.abs(current.y - appState.selectionStart.y));
       setSelectionBox(left, top, width, height);
     });
 
     async function finalizeSelection(event) {
       if (!appState.selecting || !appState.selectionStart) return;
       appState.selecting = false;
-      const current = overlayPoint(event);
-      const left = Math.min(appState.selectionStart.x, current.x);
-      const top = Math.min(appState.selectionStart.y, current.y);
-      const width = Math.max(20, Math.abs(current.x - appState.selectionStart.x));
-      const height = Math.max(20, Math.abs(current.y - appState.selectionStart.y));
+      var current = overlayPoint(event);
+      var left = Math.min(appState.selectionStart.x, current.x);
+      var top = Math.min(appState.selectionStart.y, current.y);
+      var width = Math.max(20, Math.abs(current.x - appState.selectionStart.x));
+      var height = Math.max(20, Math.abs(current.y - appState.selectionStart.y));
       setSelectionBox(left, top, width, height);
-      const centerX = left + width / 2;
-      const centerY = top + height / 2;
-      const params = appState.config.camera.params;
-      const selection = {
+      var params = appState.config && appState.config.camera ? appState.config.camera.params : null;
+      if (!params || !current.rectWidth || !current.rectHeight) {
+        notify('Camera parameters unavailable.', 'err');
+        return;
+      }
+      var centerX = left + width / 2;
+      var centerY = top + height / 2;
+      await projectSelection({
         u: (centerX / current.rectWidth) * params.width_px,
         v: (centerY / current.rectHeight) * params.height_px,
-      };
-      await projectSelection(selection);
+      });
     }
 
     overlay.addEventListener('pointerup', finalizeSelection);
-    overlay.addEventListener('pointerleave', (event) => {
-      if (appState.selecting) {
-        finalizeSelection(event);
-      }
+    overlay.addEventListener('pointerleave', function(event) {
+      if (appState.selecting) finalizeSelection(event);
     });
 
     $('clear-selection').addEventListener('click', clearSelection);
-    $('project-center').addEventListener('click', () => {
-      const params = appState.config.camera.params;
+    $('project-center').addEventListener('click', function() {
+      var params = appState.config && appState.config.camera ? appState.config.camera.params : null;
+      if (!params) { notify('Camera parameters unavailable.', 'err'); return; }
       setSelectionBox(0, 0, 0, 0);
-      projectSelection({
-        u: params.width_px / 2,
-        v: params.height_px / 2,
-      });
+      projectSelection({ u: params.width_px / 2, v: params.height_px / 2 });
     });
-
-    $('orbit-selection').addEventListener('click', () => runSelectionAction('orbit'));
-    $('approach-selection').addEventListener('click', () => runSelectionAction('approach'));
+    $('orbit-selection').addEventListener('click', function() { runSelectionAction('orbit'); });
+    $('approach-selection').addEventListener('click', function() { runSelectionAction('approach'); });
   }
 
   async function runSelectionAction(kind) {
-    if (!appState.selection || !appState.selection.projection || appState.selectionBusy) {
-      return;
-    }
+    if (!appState.selection || !appState.selection.projection || appState.selectionBusy) return;
     appState.selectionBusy = true;
     updateSelectionUI();
-    const route = kind === 'orbit' ? '/dashboard/api/select_and_orbit' : '/dashboard/api/select_and_approach';
-    const payload = {
+    var route = kind === 'orbit' ? '/dashboard/api/select_and_orbit' : '/dashboard/api/select_and_approach';
+    var payload = {
       u: appState.selection.u,
       v: appState.selection.v,
       radius_m: parseFloat($('p-orbit-radius').value),
@@ -943,14 +1481,12 @@ button,input{font:inherit}
       altitude_m: parseFloat($('p-goto-alt').value),
     };
     try {
-      const result = await fetchJSON(route, {
+      var result = await fetchJSON(route, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
-      if (result.data && result.data.projection) {
-        updateTargetMarker(result.data.projection);
-      }
+      if (result.data && result.data.projection) updateTargetMarker(result.data.projection);
       notify((kind === 'orbit' ? 'Orbit' : 'Approach') + ': ' + result.message, result.success ? 'ok' : 'err');
     } catch (error) {
       notify(error.message || 'Selection command failed', 'err');
@@ -960,265 +1496,724 @@ button,input{font:inherit}
     }
   }
 
-  function connectTelemetrySSE() {
-    if (appState.telemetryES) appState.telemetryES.close();
-    appState.telemetryES = new EventSource('/dashboard/api/telemetry/stream');
-    appState.telemetryES.addEventListener('telemetry', (event) => {
-      try {
-        updateTelemetry(JSON.parse(event.data));
-      } catch (_) {}
-    });
-    appState.telemetryES.onopen = () => setChip('conn-chip', 'ok', 'Telemetry live');
-    appState.telemetryES.onerror = () => setChip('conn-chip', 'err', 'Telemetry reconnecting');
-  }
-
-  function connectEventsSSE() {
-    if (appState.eventsES) appState.eventsES.close();
-    appState.eventsES = new EventSource('/dashboard/api/events/stream');
-    appState.eventsES.addEventListener('dashboard_event', (event) => {
-      try {
-        appendEvent(JSON.parse(event.data));
-      } catch (_) {}
-    });
-  }
-
-  async function loadInitialEvents() {
-    try {
-      const events = await fetchJSON('/dashboard/api/events?limit=50');
-      events.forEach(appendEvent);
-    } catch (_) {}
-  }
-
-  async function refreshStatus() {
-    try {
-      updateTelemetry(await fetchJSON('/dashboard/api/status'));
-    } catch (error) {
-      notify(error.message || 'Failed to load initial status', 'err');
-    }
+  /* ── Commands ── */
+  function setCommandControlsDisabled(disabled) {
+    document.querySelectorAll('.cmd-btn').forEach(function(b) { b.disabled = disabled; });
+    document.querySelectorAll('[data-manual-action]').forEach(function(b) { b.disabled = disabled; });
+    $('map-target-clear').disabled = disabled;
+    $('map-target-orbit').disabled = disabled || !appState.mapTarget;
+    $('map-target-approach').disabled = disabled || !appState.mapTarget;
+    $('quick-command-submit').disabled = disabled;
+    $('assistant-confirm').disabled = disabled || !appState.assistant.pendingPlan;
+    updateChatBusyState();
+    updateManualUI();
   }
 
   async function sendCommand(command, body) {
-    if (appState.commandBusy) return;
+    if (appState.commandBusy) return null;
     appState.commandBusy = true;
+    setCommandControlsDisabled(true);
     notify(command + '...', 'info');
     try {
-      const result = await fetchJSON('/dashboard/api/commands/' + encodeURIComponent(command), {
+      var result = await fetchJSON('/dashboard/api/commands/' + encodeURIComponent(command), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body || {}),
       });
-      notify(command + ': ' + result.message, result.success ? 'ok' : 'err');
+      if (result.data && result.data.state) updateTelemetry(result.data);
       if (result.data && result.data.target_latitude_deg && result.data.target_longitude_deg) {
         updateTargetMarker({
           latitude_deg: result.data.target_latitude_deg,
           longitude_deg: result.data.target_longitude_deg,
         });
       }
+      notify(command + ': ' + result.message, result.success ? 'ok' : 'err');
       return result;
     } catch (error) {
       notify(command + ': ' + (error.message || 'request failed'), 'err');
+      return null;
     } finally {
       appState.commandBusy = false;
+      setCommandControlsDisabled(false);
     }
   }
 
-  function initCommands() {
-    document.querySelectorAll('[data-command]').forEach((button) => {
-      button.addEventListener('click', () => sendCommand(button.dataset.command));
-    });
-    $('takeoff-btn').addEventListener('click', () => {
-      const altitude_m = parseFloat($('p-alt').value);
-      if (Number.isNaN(altitude_m)) {
-        notify('Takeoff altitude must be numeric.', 'err');
-        return;
+  function commandPayloadFor(name) {
+    if (name === 'guided_takeoff' || name === 'takeoff') {
+      var altitude = parseFloat($('p-alt').value);
+      if (Number.isNaN(altitude)) { notify('Altitude must be numeric.', 'err'); return null; }
+      return { altitude_m: altitude };
+    }
+    if (name === 'goto_relative') {
+      var north = parseFloat($('p-north').value);
+      var east = parseFloat($('p-east').value);
+      var alt = parseFloat($('p-goto-alt').value);
+      if ([north, east, alt].some(function(v) { return Number.isNaN(v); })) {
+        notify('Goto inputs must be numeric.', 'err'); return null;
       }
-      sendCommand('takeoff', { altitude_m: altitude_m });
+      return { north_m: north, east_m: east, altitude_m: alt };
+    }
+    return {};
+  }
+
+  function handleCommandClick(commandName) {
+    var payload = commandPayloadFor(commandName);
+    if (payload === null) return;
+    sendCommand(commandName, payload);
+  }
+
+  function renderCommands() {
+    var container = $('command-grid');
+    var summary = $('command-summary');
+    container.innerHTML = '';
+    if (!appState.commands.length) {
+      if (summary) summary.textContent = 'No commands available.';
+      return;
+    }
+    if (summary) summary.textContent = appState.commands.length + ' commands';
+    appState.commands.forEach(function(command) {
+      var button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'cmd-btn cmd-' + (command.tone || 'neutral');
+      button.title = command.hint || command.label;
+      button.dataset.command = command.name;
+      button.innerHTML =
+        '<span class="cmd-label">' + esc(command.label || command.name) + '</span>' +
+        '<span class="cmd-meta">' + esc(commandDescriptor(command)) + '</span>';
+      button.addEventListener('click', function() { handleCommandClick(command.name); });
+      container.appendChild(button);
     });
-    $('goto-btn').addEventListener('click', () => {
-      const north_m = parseFloat($('p-north').value);
-      const east_m = parseFloat($('p-east').value);
-      const altitude_m = parseFloat($('p-goto-alt').value);
-      if ([north_m, east_m, altitude_m].some((value) => Number.isNaN(value))) {
-        notify('Goto inputs must all be numeric.', 'err');
-        return;
-      }
-      sendCommand('goto_relative', {
-        north_m: north_m,
-        east_m: east_m,
-        altitude_m: altitude_m,
+  }
+
+  /* ── SSE Streams ── */
+  function connectTelemetrySSE() {
+    if (appState.telemetryES) appState.telemetryES.close();
+    appState.telemetryES = new EventSource('/dashboard/api/telemetry/stream');
+    appState.telemetryES.addEventListener('telemetry', function(event) {
+      try { updateTelemetry(JSON.parse(event.data)); } catch (_) {}
+    });
+    appState.telemetryES.onopen = function() { setChip('conn-chip', 'ok', 'Telemetry live'); };
+    appState.telemetryES.onerror = function() { setChip('conn-chip', 'err', 'Reconnecting...'); };
+  }
+
+  function connectEventsSSE() {
+    if (appState.eventsES) appState.eventsES.close();
+    appState.eventsES = new EventSource('/dashboard/api/events/stream');
+    appState.eventsES.addEventListener('dashboard_event', function(event) {
+      try { appendEvent(JSON.parse(event.data)); } catch (_) {}
+    });
+  }
+
+  async function loadInitialEvents() {
+    try {
+      var events = await fetchJSON('/dashboard/api/events?limit=12');
+      events.forEach(appendEvent);
+    } catch (_) {}
+  }
+
+  async function refreshStatus() {
+    try { updateTelemetry(await fetchJSON('/dashboard/api/status')); }
+    catch (error) { notify(error.message || 'Failed to load status', 'err'); }
+  }
+
+  /* ── Assistant ── */
+  function setAssistantPending(plan, text) {
+    appState.assistant.pendingPlan = plan;
+    appState.assistant.pendingText = text || '';
+    var visible = !!(plan && plan.proposed_calls && plan.proposed_calls.length);
+    $('assistant-confirm-bar').classList.toggle('visible', visible);
+    $('assistant-confirm-text').textContent = visible
+      ? 'Preview: ' + plan.proposed_calls.map(function(c) { return c.command || c.name || '?'; }).join(' → ')
+      : '';
+    $('assistant-confirm').disabled = !visible;
+  }
+
+  function clearAssistantPending() {
+    appState.assistant.pendingPlan = null;
+    appState.assistant.pendingText = '';
+    $('assistant-confirm-bar').classList.remove('visible');
+    $('assistant-confirm').disabled = true;
+  }
+
+  function updateChatBusyState() {
+    var busy = appState.assistant.busy || appState.commandBusy;
+    var hasPending = !!appState.assistant.pendingPlan;
+    $('assistant-input').disabled = false;
+    $('assistant-preview').disabled = hasPending;
+    $('assistant-run').disabled = false;
+    $('assistant-confirm').disabled = busy || !hasPending;
+  }
+
+  function enqueueAssistantRequest(kind, text) {
+    var trimmed = (text || '').trim();
+    if (!trimmed) return null;
+    appState.assistant.queue.push({ kind: kind, text: trimmed });
+    appendChatRow('system', 'Queued: ' + trimmed, null);
+    notify('Assistant busy. Queued command #' + appState.assistant.queue.length + '.', 'info');
+    updateChatBusyState();
+    return null;
+  }
+
+  async function drainAssistantQueue() {
+    if (appState.assistant.busy || appState.commandBusy || appState.assistant.pendingPlan) return null;
+    var next = appState.assistant.queue.shift();
+    if (!next) {
+      updateChatBusyState();
+      return null;
+    }
+    updateChatBusyState();
+    if (next.kind === 'preview') return previewAssistantCommand(next.text);
+    return runAssistantCommand(next.text);
+  }
+
+  async function executeAssistantPlan(text, plan) {
+    var payload = { text: text || '' };
+    if (plan && Array.isArray(plan.proposed_calls)) payload.proposed_calls = plan.proposed_calls;
+    if (plan && plan.assistant_text) payload.assistant_text = plan.assistant_text;
+    var result = await fetchJSON('/dashboard/api/assistant/execute', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (Array.isArray(result.executed_calls) && result.executed_calls.length) {
+      result.executed_calls.forEach(function(call) {
+        if (call && call.data && call.data.state) updateTelemetry(call.data);
+        if (call && call.data && call.data.target) {
+          appState.mapTarget = call.data.target;
+          updateMapTargetMarker(appState.mapTarget);
+        }
       });
-    });
-  }
-
-  function setVoiceStatus(mode, text) {
-    setChip('voice-chip', mode, text);
-  }
-
-  async function submitQuickCommand() {
-    const input = $('voice-command-input');
-    const text = input.value.trim();
-    if (!text) return;
-    input.value = '';
-    await executeVoiceCommand(text);
-  }
-
-  function spatialReferenceToPixel(text) {
-    const params = appState.config.camera.params;
-    const center = { u: params.width_px / 2, v: params.height_px / 2 };
-    const horizontal = text.includes('left') ? 0.25 : (text.includes('right') ? 0.75 : 0.5);
-    const vertical = text.includes('top') ? 0.25 : (text.includes('bottom') ? 0.75 : 0.5);
-    if (!/(left|right|top|bottom|center|middle)/.test(text)) {
-      return center;
     }
-    return {
-      u: params.width_px * horizontal,
-      v: params.height_px * vertical,
-    };
-  }
-
-  function parseDirectionalGoto(text) {
-    const match = text.match(/go\\s+(north|south|east|west)\\s+(\\d+(?:\\.\\d+)?)\\s*(?:meter|meters|m)?/);
-    if (!match) return null;
-    const direction = match[1];
-    const distance = parseFloat(match[2]);
-    const result = { north_m: 0, east_m: 0, altitude_m: parseFloat($('p-goto-alt').value) || 5 };
-    if (direction === 'north') result.north_m = distance;
-    if (direction === 'south') result.north_m = -distance;
-    if (direction === 'east') result.east_m = distance;
-    if (direction === 'west') result.east_m = -distance;
+    clearAssistantPending();
+    notify(result.success ? 'Execution complete.' : 'Execution stopped.', result.success ? 'ok' : 'err');
     return result;
   }
 
-  async function executeVoiceCommand(text) {
-    const normalized = text.trim().toLowerCase();
-    $('voice-transcript').textContent = normalized || 'Voice recognition idle.';
+  async function previewAssistantCommand(text) {
+    var trimmed = text.trim();
+    if (!trimmed) return null;
+    if (appState.assistant.busy || appState.commandBusy || appState.assistant.pendingPlan) {
+      return enqueueAssistantRequest('preview', trimmed);
+    }
+    appState.assistant.busy = true;
+    updateChatBusyState();
+    try {
+      var result = await fetchJSON('/dashboard/api/assistant/plan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: trimmed }),
+      });
+      if (result.selected_target) {
+        appState.mapTarget = result.selected_target;
+        updateMapTargetMarker(appState.mapTarget);
+      }
+      if (result.requires_confirmation && !appState.assistant.bypass && Array.isArray(result.proposed_calls) && result.proposed_calls.length) {
+        setAssistantPending(result, trimmed);
+      } else if (Array.isArray(result.proposed_calls) && result.proposed_calls.length) {
+        clearAssistantPending();
+        await executeAssistantPlan(trimmed, result);
+      } else {
+        clearAssistantPending();
+      }
+      return result;
+    } catch (error) {
+      clearAssistantPending();
+      notify(error.message || 'Assistant unavailable; using fallback.', 'err');
+      executeQuickCommand(trimmed);
+      return null;
+    } finally {
+      appState.assistant.busy = false;
+      updateChatBusyState();
+      if (!appState.assistant.pendingPlan) drainAssistantQueue();
+    }
+  }
 
+  async function runAssistantCommand(text) {
+    var trimmed = text.trim();
+    if (!trimmed) return null;
+    if (appState.assistant.busy || appState.commandBusy || appState.assistant.pendingPlan) {
+      return enqueueAssistantRequest('run', trimmed);
+    }
+    if (appState.assistant.bypass) {
+      appState.assistant.busy = true;
+      updateChatBusyState();
+      try { return await executeAssistantPlan(text); }
+      catch (error) {
+        notify(error.message || 'Assistant unavailable.', 'err');
+        executeQuickCommand(text);
+        return null;
+      } finally {
+        appState.assistant.busy = false;
+        updateChatBusyState();
+        if (!appState.assistant.pendingPlan) drainAssistantQueue();
+      }
+    }
+    return previewAssistantCommand(trimmed);
+  }
+
+  async function executePendingAssistantCommand() {
+    var pending = appState.assistant.pendingPlan;
+    var text = appState.assistant.pendingText;
+    if (!pending || !text) return;
+    appState.assistant.busy = true;
+    updateChatBusyState();
+    try { await executeAssistantPlan(text, pending); }
+    catch (error) { notify(error.message || 'Execution failed.', 'err'); }
+    finally {
+      appState.assistant.busy = false;
+      updateChatBusyState();
+      if (!appState.assistant.pendingPlan) drainAssistantQueue();
+    }
+  }
+
+  /* ── Map Target ── */
+  async function setMapTarget(target) {
+    try {
+      var result = await fetchJSON('/dashboard/api/target', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(target),
+      });
+      appState.mapTarget = result.target || null;
+      updateMapTargetMarker(appState.mapTarget);
+      updateMapSummary(appState.telemetry || {});
+      if (appState.mapTarget) {
+        notify('Target: ' + appState.mapTarget.latitude_deg.toFixed(6) + ', ' + appState.mapTarget.longitude_deg.toFixed(6), 'info');
+      }
+    } catch (error) {
+      notify(error.message || 'Failed to set target.', 'err');
+    }
+  }
+
+  async function clearMapTarget() {
+    try {
+      await fetchJSON('/dashboard/api/target', { method: 'DELETE' });
+      appState.mapTarget = null;
+      updateMapTargetMarker(null);
+      updateMapSummary(appState.telemetry || {});
+      notify('Target cleared.', 'info');
+    } catch (error) {
+      notify(error.message || 'Failed to clear target.', 'err');
+    }
+  }
+
+  async function runMapTargetAction(kind) {
+    if (!appState.mapTarget) return;
+    var route = kind === 'orbit' ? '/dashboard/api/target/orbit' : '/dashboard/api/target/approach';
+    try {
+      appState.commandBusy = true;
+      setCommandControlsDisabled(true);
+      var result = await fetchJSON(route, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          radius_m: parseFloat($('p-orbit-radius').value),
+          velocity_m_s: parseFloat($('p-orbit-speed').value),
+        }),
+      });
+      if (result.data && result.data.target) {
+        appState.mapTarget = result.data.target;
+        updateMapTargetMarker(appState.mapTarget);
+      }
+      notify((kind === 'orbit' ? 'Orbit' : 'Approach') + ': ' + result.message, result.success ? 'ok' : 'err');
+    } catch (error) {
+      notify(error.message || 'Target action failed.', 'err');
+    } finally {
+      appState.commandBusy = false;
+      setCommandControlsDisabled(false);
+    }
+  }
+
+  /* ── Quick Command Parser ── */
+  function executeQuickCommand(text) {
+    var normalized = text.trim().toLowerCase();
     if (!normalized) return;
-    if (normalized.includes('connect')) return sendCommand('connect');
-    if (normalized.includes('disarm')) return sendCommand('disarm');
-    if (normalized.includes('arm')) return sendCommand('arm');
-    if (normalized.includes('land')) return sendCommand('land');
-    if (/(rtl|return|come back)/.test(normalized)) return sendCommand('rtl');
-    if (/(hold|hover|stop)/.test(normalized)) return sendCommand('hold');
 
-    const takeoffMatch = normalized.match(/take\\s*off(?:\\s+to)?\\s+(\\d+(?:\\.\\d+)?)?/);
+    if (normalized.indexOf('connect') !== -1) return sendCommand('connect');
+    if (normalized.indexOf('disarm') !== -1)  return sendCommand('disarm');
+    if (normalized.indexOf('arm') !== -1)     return sendCommand('arm');
+    if (normalized.indexOf('land') !== -1)    return sendCommand('land');
+    if (/rtl|return|come back/.test(normalized)) return sendCommand('rtl');
+    if (/hold|hover|stop/.test(normalized))      return sendCommand('hold');
+
+    var takeoffMatch = normalized.match(/take\\s*off(?:\\s+to)?\\s+(\\d+(?:\\.\\d+)?)/);
     if (takeoffMatch) {
-      const altitude = takeoffMatch[1] ? parseFloat(takeoffMatch[1]) : parseFloat($('p-alt').value) || 5;
-      return sendCommand('takeoff', { altitude_m: altitude });
+      return sendCommand('guided_takeoff', { altitude_m: parseFloat(takeoffMatch[1]) });
+    }
+    if (/take\\s*off/.test(normalized)) {
+      return sendCommand('guided_takeoff', { altitude_m: parseFloat($('p-alt').value) || 5 });
     }
 
-    const gotoRelative = parseDirectionalGoto(normalized);
-    if (gotoRelative) {
-      return sendCommand('goto_relative', gotoRelative);
+    var gotoMatch = normalized.match(/go\\s+(north|south|east|west)\\s+(\\d+(?:\\.\\d+)?)\\s*(?:meters?|m)?/);
+    if (gotoMatch) {
+      var dir = gotoMatch[1];
+      var dist = parseFloat(gotoMatch[2]);
+      var p = { north_m: 0, east_m: 0, altitude_m: parseFloat($('p-goto-alt').value) || 5 };
+      if (dir === 'north') p.north_m = dist;
+      if (dir === 'south') p.north_m = -dist;
+      if (dir === 'east')  p.east_m = dist;
+      if (dir === 'west')  p.east_m = -dist;
+      return sendCommand('goto_relative', p);
     }
 
-    if (/(circle|orbit)/.test(normalized)) {
-      const selection = spatialReferenceToPixel(normalized);
-      await projectSelection(selection);
+    if (/circle|orbit/.test(normalized)) {
+      if (appState.mapTarget && /target|map/.test(normalized)) return runMapTargetAction('orbit');
       return runSelectionAction('orbit');
     }
-
-    if (/(approach|inspect)/.test(normalized)) {
-      const selection = spatialReferenceToPixel(normalized);
-      await projectSelection(selection);
+    if (/approach|inspect/.test(normalized)) {
+      if (appState.mapTarget && /target|map/.test(normalized)) return runMapTargetAction('approach');
       return runSelectionAction('approach');
     }
 
-    notify('Voice command not recognized: ' + normalized, 'err');
+    notify('Unrecognized command: ' + normalized, 'err');
+    return null;
   }
 
-  function initVoice() {
-    $('voice-submit').addEventListener('click', () => {
-      submitQuickCommand();
-    });
-    $('voice-command-input').addEventListener('keydown', (event) => {
-      if (event.key === 'Enter') {
-        event.preventDefault();
-        submitQuickCommand();
-      }
+  /* ── Manual Controls ── */
+  function bodyFrameOffsetToNed(forwardM, rightM, yawDeg) {
+    var yawRad = ((yawDeg || 0) * Math.PI) / 180;
+    return {
+      north_m: (Math.cos(yawRad) * forwardM) - (Math.sin(yawRad) * rightM),
+      east_m:  (Math.sin(yawRad) * forwardM) + (Math.cos(yawRad) * rightM),
+    };
+  }
+
+  function clamp(value, min, max) { return Math.max(min, Math.min(max, value)); }
+
+  function manualCapabilities() {
+    return appState.config && appState.config.manual_control ? appState.config.manual_control : {};
+  }
+
+  function manualSupports(action) {
+    var caps = manualCapabilities();
+    if (action.indexOf('move_') === 0)    return !!caps.supports_translation;
+    if (action.indexOf('altitude_') === 0) return !!caps.supports_altitude;
+    if (action.indexOf('yaw_') === 0)      return !!caps.supports_yaw;
+    if (action === 'gimbal_up' || action === 'gimbal_down') return !!caps.supports_gimbal_pitch;
+    return false;
+  }
+
+  function manualTooltipFor(action) {
+    if (action.indexOf('yaw_') === 0)    return 'Yaw unavailable in active backend.';
+    if (action === 'gimbal_up' || action === 'gimbal_down') return 'Gimbal pitch unavailable in active backend.';
+    return '';
+  }
+
+  async function sendManualRequest(route, payload, label) {
+    if (appState.commandBusy) return null;
+    appState.commandBusy = true;
+    setCommandControlsDisabled(true);
+    try {
+      var result = await fetchJSON(route, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (result.data && result.data.state) updateTelemetry(result.data);
+      notify(label + ': ' + result.message, result.success ? 'ok' : 'err');
+      return result;
+    } catch (error) {
+      notify(label + ': ' + (error.message || 'failed'), 'err');
+      return null;
+    } finally {
+      appState.commandBusy = false;
+      setCommandControlsDisabled(false);
+    }
+  }
+
+  function updateManualUI() {
+    var enabled = $('manual-toggle').checked;
+    appState.manual.enabled = enabled;
+    var caps = manualCapabilities();
+    $('manual-status').textContent = enabled ? 'Active' : 'Off';
+    $('manual-summary').textContent = enabled
+      ? 'Keyboard active. Focus input to pause.'
+      : 'Enable toggle for keyboard control.';
+    setChip('control-chip', enabled ? 'live' : '', enabled ? 'Manual active' : 'Manual locked');
+
+    document.querySelectorAll('[data-manual-action]').forEach(function(button) {
+      var action = button.dataset.manualAction;
+      var supported = manualSupports(action);
+      button.classList.toggle('unsupported', !supported);
+      button.disabled = appState.commandBusy || !supported;
+      if (!supported) button.title = manualTooltipFor(action);
     });
 
-    const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!Recognition) {
-      setVoiceStatus('warn', 'Quick command mode');
-      $('voice-transcript').textContent = 'This browser does not expose live speech recognition.';
-      $('voice-mode-note').textContent = 'Firefox: use Quick Command here, or open the dashboard in Chrome or Edge for microphone dictation.';
-      $('voice-toggle').disabled = true;
-      return;
+    if (enabled) {
+      var unsupported = [];
+      if (!caps.supports_yaw) unsupported.push('yaw');
+      if (!caps.supports_gimbal_pitch) unsupported.push('gimbal');
+      if (unsupported.length) {
+        $('manual-status').textContent = 'Active (' + unsupported.join(', ') + ' N/A)';
+      }
+    }
+  }
+
+  async function sendManualAction(action) {
+    var now = Date.now();
+    if (!appState.manual.enabled || appState.commandBusy) return;
+    if (now - appState.manual.lastIssuedAt < appState.manual.minIntervalMs) return;
+    appState.manual.lastIssuedAt = now;
+
+    if (!manualSupports(action)) { notify(manualTooltipFor(action), 'err'); return; }
+
+    var moveStep = parseFloat($('manual-step').value);
+    var altitudeStep = parseFloat($('manual-alt-step').value);
+    var snapshot = appState.telemetry || {};
+    var currentAlt = currentRelativeAltitude();
+    var config = appState.config || {};
+    var minAlt = config.min_altitude_m != null ? config.min_altitude_m : 0.5;
+    var maxAlt = config.max_altitude_m != null ? config.max_altitude_m : 120;
+    var payload = null;
+
+    if (action === 'move_forward') payload = bodyFrameOffsetToNed(moveStep, 0, snapshot.yaw_deg || 0);
+    if (action === 'move_back')    payload = bodyFrameOffsetToNed(-moveStep, 0, snapshot.yaw_deg || 0);
+    if (action === 'move_left')    payload = bodyFrameOffsetToNed(0, -moveStep, snapshot.yaw_deg || 0);
+    if (action === 'move_right')   payload = bodyFrameOffsetToNed(0, moveStep, snapshot.yaw_deg || 0);
+
+    if (payload) {
+      return sendManualRequest('/dashboard/api/manual/move', {
+        north_m: payload.north_m, east_m: payload.east_m,
+        altitude_m: clamp(currentAlt, minAlt, maxAlt),
+      }, 'move');
     }
 
-    const recognition = new Recognition();
-    recognition.continuous = true;
-    recognition.interimResults = true;
-    recognition.lang = 'en-US';
-    appState.voice.supported = true;
-    appState.voice.recognition = recognition;
-    setVoiceStatus('', 'Voice idle');
-    $('voice-mode-note').textContent = 'Microphone dictation is active in this browser. Quick Command stays available as a fallback.';
+    if (action === 'altitude_up' || action === 'altitude_down') {
+      var delta = action === 'altitude_up' ? altitudeStep : -altitudeStep;
+      return sendManualRequest('/dashboard/api/manual/move', {
+        north_m: 0, east_m: 0, altitude_m: clamp(currentAlt + delta, minAlt, maxAlt),
+      }, 'altitude');
+    }
 
-    recognition.onstart = () => {
-      appState.voice.listening = true;
-      $('voice-toggle').classList.add('listening');
-      setVoiceStatus('live', 'Voice listening');
-    };
+    if (action === 'yaw_left' || action === 'yaw_right') {
+      var caps = manualCapabilities();
+      var yawStep = caps.yaw_step_deg || 15;
+      return sendManualRequest('/dashboard/api/manual/yaw', {
+        delta_deg: action === 'yaw_left' ? -yawStep : yawStep,
+      }, 'yaw');
+    }
 
-    recognition.onend = () => {
-      appState.voice.listening = false;
-      $('voice-toggle').classList.remove('listening');
-      setVoiceStatus('', 'Voice idle');
-    };
+    if (action === 'gimbal_up' || action === 'gimbal_down') {
+      var caps2 = manualCapabilities();
+      var gimbalStep = caps2.gimbal_pitch_step_deg || 10;
+      return sendManualRequest('/dashboard/api/manual/gimbal_pitch', {
+        delta_deg: action === 'gimbal_up' ? gimbalStep : -gimbalStep,
+      }, 'gimbal');
+    }
+  }
 
-    recognition.onerror = (event) => {
-      appState.voice.listening = false;
-      $('voice-toggle').classList.remove('listening');
-      setVoiceStatus('err', 'Voice error');
-      notify('Voice recognition error: ' + event.error, 'err');
-    };
-
-    recognition.onresult = async (event) => {
-      let interim = '';
-      for (let i = event.resultIndex; i < event.results.length; i += 1) {
-        const transcript = event.results[i][0].transcript;
-        if (event.results[i].isFinal) {
-          await executeVoiceCommand(transcript);
-        } else {
-          interim += transcript;
-        }
-      }
-      if (interim) {
-        $('voice-transcript').textContent = interim;
-      }
-    };
-
-    $('voice-toggle').addEventListener('click', () => {
-      if (!appState.voice.recognition) return;
-      if (appState.voice.listening) {
-        appState.voice.recognition.stop();
-      } else {
-        appState.voice.recognition.start();
-      }
+  function setActiveManualButton(action) {
+    appState.manual.activeAction = action;
+    document.querySelectorAll('[data-manual-action]').forEach(function(b) {
+      b.classList.toggle('active', b.dataset.manualAction === action);
     });
   }
 
-  async function boot() {
+  function clearActiveManualButton(action) {
+    if (!action || appState.manual.activeAction !== action) return;
+    appState.manual.activeAction = null;
+    document.querySelectorAll('[data-manual-action]').forEach(function(b) { b.classList.remove('active'); });
+  }
+
+  function initManualControls() {
+    $('manual-toggle').addEventListener('change', updateManualUI);
+
+    document.querySelectorAll('[data-manual-action]').forEach(function(button) {
+      button.addEventListener('mousedown', function() { setActiveManualButton(button.dataset.manualAction); });
+      button.addEventListener('mouseup', function() { clearActiveManualButton(button.dataset.manualAction); });
+      button.addEventListener('mouseleave', function() { clearActiveManualButton(button.dataset.manualAction); });
+      button.addEventListener('click', function() {
+        setActiveManualButton(button.dataset.manualAction);
+        sendManualAction(button.dataset.manualAction).then(function() {
+          window.setTimeout(function() { clearActiveManualButton(button.dataset.manualAction); }, 120);
+        });
+      });
+    });
+
+    $('quick-command-submit').addEventListener('click', function() {
+      var input = $('quick-command-input');
+      var text = input.value.trim();
+      if (!text) return;
+      input.value = '';
+      executeQuickCommand(text);
+    });
+
+    $('quick-command-input').addEventListener('keydown', function(event) {
+      if (event.key === 'Enter') { event.preventDefault(); $('quick-command-submit').click(); }
+    });
+
+    window.addEventListener('keydown', function(event) {
+      var tag = event.target && event.target.tagName ? event.target.tagName.toLowerCase() : '';
+      if (tag === 'input' || tag === 'textarea') return;
+      var action = MANUAL_KEYMAP[event.key];
+      if (!action || !appState.manual.enabled) return;
+      event.preventDefault();
+      setActiveManualButton(action);
+      sendManualAction(action);
+    });
+
+    window.addEventListener('keyup', function(event) {
+      var action = MANUAL_KEYMAP[event.key];
+      if (action) clearActiveManualButton(action);
+    });
+  }
+
+  /* ── Assistant Chat Init ── */
+  function initAssistantChat() {
+    $('assistant-bypass').addEventListener('change', function(event) {
+      appState.assistant.bypass = event.target.checked;
+      if (appState.assistant.bypass) $('assistant-confirm-bar').classList.remove('visible');
+    });
+
+    $('assistant-preview').addEventListener('click', function() {
+      var text = $('assistant-input').value.trim();
+      if (text) previewAssistantCommand(text);
+    });
+
+    $('assistant-run').addEventListener('click', function() {
+      var input = $('assistant-input');
+      var text = input.value.trim();
+      if (!text) return;
+      input.value = '';
+      runAssistantCommand(text);
+    });
+
+    $('assistant-confirm').addEventListener('click', executePendingAssistantCommand);
+
+    /* Voice recognition (Chrome Web Speech API) */
+    var SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    var micBtn = $('voice-cmd-btn');
+    if (SpeechRecognition && micBtn) {
+      var recognition = new SpeechRecognition();
+      recognition.continuous = false;
+      recognition.interimResults = false;
+
+      micBtn.addEventListener('click', function() {
+        micBtn.classList.add('recording');
+        micBtn.textContent = '●';
+        recognition.start();
+      });
+
+      recognition.onresult = function(event) {
+        micBtn.classList.remove('recording');
+        micBtn.innerHTML = '&#x1F3A4;';
+        $('assistant-input').value = event.results[0][0].transcript;
+        $('assistant-run').click();
+      };
+      recognition.onerror = function(event) {
+        micBtn.classList.remove('recording');
+        micBtn.innerHTML = '&#x1F3A4;';
+        notify('Voice: ' + event.error, 'err');
+      };
+      recognition.onend = function() {
+        micBtn.classList.remove('recording');
+        micBtn.innerHTML = '&#x1F3A4;';
+      };
+    } else if (micBtn) {
+      micBtn.disabled = true;
+      micBtn.title = 'Voice input not supported in this browser.';
+      micBtn.style.opacity = '0.3';
+    }
+
+    $('assistant-input').addEventListener('keydown', function(event) {
+      if (event.key === 'Enter') { event.preventDefault(); $('assistant-run').click(); }
+    });
+  }
+
+  function initMapTargetControls() {
+    $('map-target-clear').addEventListener('click', function() { clearMapTarget(); });
+    $('map-target-orbit').addEventListener('click', function() { runMapTargetAction('orbit'); });
+    $('map-target-approach').addEventListener('click', function() { runMapTargetAction('approach'); });
+  }
+
+  /* ── Tab Switching ── */
+  function initTabs() {
+    var tabCmd = $('tab-cmd');
+    var tabAi = $('tab-ai');
+    var panelCmd = $('panel-cmd');
+    var panelAi = $('panel-ai');
+    if (!tabCmd || !tabAi) return;
+
+    tabCmd.addEventListener('click', function() {
+      tabCmd.classList.add('active');
+      tabAi.classList.remove('active');
+      panelCmd.style.display = 'block';
+      panelAi.style.display = 'none';
+    });
+    tabAi.addEventListener('click', function() {
+      tabAi.classList.add('active');
+      tabCmd.classList.remove('active');
+      panelAi.style.display = 'flex';
+      panelCmd.style.display = 'none';
+    });
+  }
+
+  /* ── Boot ── */
+
+  /* UI-only init — runs once, no network needed */
+  function initUI() {
+    initTabs();
+    initSelection();
+    initManualControls();
+    initAssistantChat();
+    initMapTargetControls();
+    updateManualUI();
+  }
+
+  /* Network-dependent init — retries until the backend is reachable */
+  async function connectBackend() {
     try {
+      notify('Connecting to backend...', 'connecting');
+      setChip('conn-chip', 'warn', 'Connecting...');
+
       await loadConfig();
+      await loadCommandManifest();
+      await loadSelectedTarget();
+
+      appState.backendOnline = true;
+      appState.bootRetryCount = 0;
+      notify('Backend connected. System nominal.', 'ok');
+
       initMap();
       initCamera();
-      initSelection();
-      initCommands();
-      initVoice();
       connectTelemetrySSE();
       connectEventsSSE();
       loadInitialEvents();
       refreshStatus();
+      refreshMonitoring();
+      startMonitoringPolling();
       updateSelectionUI();
+      updateMapTargetMarker(appState.mapTarget);
+      updateManualUI();
+      updateChatBusyState();
     } catch (error) {
-      notify(error.message || 'Dashboard bootstrap failed', 'err');
+      appState.backendOnline = false;
+      appState.bootRetryCount++;
+
+      if (appState.bootRetryCount >= MAX_BOOT_RETRIES) {
+        notify('Backend unreachable. Refresh page to retry.', 'err');
+        setChip('conn-chip', 'err', 'Backend offline');
+        return;
+      }
+
+      var msg = 'Backend unavailable. Retry ' + appState.bootRetryCount + '/' + MAX_BOOT_RETRIES + '...';
+      notify(msg, 'connecting');
+      setChip('conn-chip', 'warn', 'Retrying...');
+
+      appState.bootRetryTimer = window.setTimeout(connectBackend, BOOT_RETRY_INTERVAL_MS);
     }
   }
 
-  document.addEventListener('DOMContentLoaded', boot);
+  window.addEventListener('beforeunload', function() {
+    clearCameraRetry();
+    if (appState.bootRetryTimer) window.clearTimeout(appState.bootRetryTimer);
+    if (appState.monitoring.pollTimer) window.clearInterval(appState.monitoring.pollTimer);
+    if (appState.telemetryES) appState.telemetryES.close();
+    if (appState.eventsES) appState.eventsES.close();
+  });
+
+  initUI();
+  connectBackend();
 })();
 </script>
 </body>

@@ -6,6 +6,7 @@ directly on MAVSDK objects.
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator, Callable
 from typing import Any, Protocol
 from urllib.parse import urlparse
@@ -54,6 +55,21 @@ class DroneBackend(TelemetryBackend, Protocol):
         yaw_deg: float = 0.0,
     ) -> None: ...
 
+    async def gimbal_pitch_relative(self, delta_deg: float) -> None: ...
+
+    async def gimbal_yaw_relative(self, delta_deg: float) -> None: ...
+
+    def current_gimbal_pitch_deg(self) -> float: ...
+
+    def current_gimbal_yaw_deg(self) -> float: ...
+
+    async def set_roi_location(
+        self,
+        latitude_deg: float,
+        longitude_deg: float,
+        absolute_altitude_m: float,
+    ) -> None: ...
+
     async def orbit(
         self,
         latitude_deg: float,
@@ -72,6 +88,8 @@ class DroneBackend(TelemetryBackend, Protocol):
 class MavsdkBackend:
     """Thin adapter that isolates MAVSDK-specific APIs from the rest of the code."""
 
+    _FORWARD_FACING_GIMBAL_YAW_DEG = 0.0
+
     def __init__(self) -> None:
         try:
             from mavsdk import System
@@ -81,6 +99,8 @@ class MavsdkBackend:
             ) from exc
 
         self._system = System()
+        self._last_known_gimbal_pitch_deg: float | None = None
+        self._last_known_gimbal_yaw_deg: float = self._FORWARD_FACING_GIMBAL_YAW_DEG
 
     async def connect(self, connection_string: str) -> None:
         await self._system.connect(system_address=self._normalize_connection_string(connection_string))
@@ -122,6 +142,50 @@ class MavsdkBackend:
             absolute_altitude_m,
             yaw_deg,
         )
+
+    async def gimbal_pitch_relative(self, delta_deg: float) -> None:
+        from mavsdk.gimbal import GimbalMode, SendMode
+
+        device_gimbal_id = await self._first_gimbal_id()
+        control_gimbal_id = await self._take_primary_gimbal_control(device_gimbal_id)
+        try:
+            current_pitch_deg = await self._current_gimbal_pitch_deg(device_gimbal_id)
+            target_pitch_deg = self._clamp(current_pitch_deg + delta_deg, -90.0, 30.0)
+            await self._system.gimbal.set_angles(
+                control_gimbal_id,
+                0.0,
+                target_pitch_deg,
+                self._FORWARD_FACING_GIMBAL_YAW_DEG,
+                GimbalMode.YAW_FOLLOW,
+                SendMode.ONCE,
+            )
+            self._last_known_gimbal_pitch_deg = target_pitch_deg
+            self._last_known_gimbal_yaw_deg = self._FORWARD_FACING_GIMBAL_YAW_DEG
+        finally:
+            await self._system.gimbal.release_control(control_gimbal_id)
+
+    async def gimbal_yaw_relative(self, delta_deg: float) -> None:
+        del delta_deg
+        raise NotImplementedError(
+            "Gimbal yaw control is disabled; the camera stays aligned with the drone nose."
+        )
+
+    async def set_roi_location(
+        self,
+        latitude_deg: float,
+        longitude_deg: float,
+        absolute_altitude_m: float,
+    ) -> None:
+        control_gimbal_id = await self._take_primary_gimbal_control(await self._first_gimbal_id())
+        try:
+            await self._system.gimbal.set_roi_location(
+                control_gimbal_id,
+                latitude_deg,
+                longitude_deg,
+                absolute_altitude_m,
+            )
+        finally:
+            await self._system.gimbal.release_control(control_gimbal_id)
 
     async def orbit(
         self,
@@ -246,6 +310,64 @@ class MavsdkBackend:
             return round(remaining_percent * 100, 2)
         return round(min(remaining_percent, 100.0), 2)
 
+    async def _first_gimbal_id(self) -> int:
+        gimbal_stream = self._system.gimbal.gimbal_list()
+        try:
+            gimbal_list = await asyncio.wait_for(anext(gimbal_stream), timeout=3.0)
+        except StopAsyncIteration as exc:
+            raise NotImplementedError("No gimbal is available on the active backend.") from exc
+        except TimeoutError as exc:
+            raise NotImplementedError("No gimbal is available on the active backend.") from exc
+        finally:
+            await gimbal_stream.aclose()
+        if not gimbal_list.gimbals:
+            raise NotImplementedError("No gimbal is available on the active backend.")
+        return gimbal_list.gimbals[0].gimbal_id
+
+    async def _take_primary_gimbal_control(self, device_gimbal_id: int) -> int:
+        from mavsdk.gimbal import ControlMode
+
+        candidate_ids = [device_gimbal_id]
+        if device_gimbal_id != 0:
+            candidate_ids.append(0)
+
+        last_exc: Exception | None = None
+        for control_gimbal_id in candidate_ids:
+            try:
+                await self._system.gimbal.take_control(control_gimbal_id, ControlMode.PRIMARY)
+                return control_gimbal_id
+            except Exception as exc:
+                last_exc = exc
+
+        if last_exc is not None:
+            raise last_exc
+        raise NotImplementedError("No gimbal control route is available on the active backend.")
+
+    async def _current_gimbal_pitch_deg(self, device_gimbal_id: int) -> float:
+        try:
+            attitude = await self._system.gimbal.get_attitude(device_gimbal_id)
+        except Exception:
+            return self._last_known_gimbal_pitch_deg or 0.0
+
+        pitch_deg = getattr(attitude, "pitch_deg", None)
+        if pitch_deg is None:
+            euler_angle_forward = getattr(attitude, "euler_angle_forward", None)
+            pitch_deg = getattr(euler_angle_forward, "pitch_deg", None)
+        if pitch_deg is None:
+            pitch_deg = self._last_known_gimbal_pitch_deg or 0.0
+
+        self._last_known_gimbal_pitch_deg = pitch_deg
+        return pitch_deg
+
+    def current_gimbal_pitch_deg(self) -> float:
+        return self._last_known_gimbal_pitch_deg or 0.0
+
+    def current_gimbal_yaw_deg(self) -> float:
+        return self._FORWARD_FACING_GIMBAL_YAW_DEG
+
+    def _clamp(self, value: float, minimum: float, maximum: float) -> float:
+        return max(minimum, min(maximum, value))
+
     def _orbit_yaw_behavior_name(self, yaw_behavior: OrbitYawBehavior) -> str:
         return {
             OrbitYawBehavior.HOLD_FRONT_TO_CIRCLE_CENTER: "HOLD_FRONT_TO_CIRCLE_CENTER",
@@ -262,6 +384,7 @@ class DroneController:
     _ARM_CONFIRMATION_TIMEOUT_S = 5.0
     _DISARM_CONFIRMATION_TIMEOUT_S = 5.0
     _TAKEOFF_CONFIRMATION_TIMEOUT_S = 15.0
+    _DEFAULT_PREFLIGHT_WAIT_TIMEOUT_S = 30.0
 
     def __init__(
         self,
@@ -280,6 +403,12 @@ class DroneController:
     @property
     def telemetry_manager(self) -> TelemetryManager:
         return self._telemetry
+
+    def current_gimbal_pitch_deg(self) -> float:
+        return self._backend.current_gimbal_pitch_deg()
+
+    def current_gimbal_yaw_deg(self) -> float:
+        return self._backend.current_gimbal_yaw_deg()
 
     async def connect(self, connection_string: str | None = None) -> CommandResult:
         resolved_connection_string = connection_string or self._settings.px4_connection_string
@@ -383,6 +512,7 @@ class DroneController:
                 target_latitude_deg,
                 target_longitude_deg,
                 target_absolute_altitude_m,
+                snapshot.yaw_deg or 0.0,
             ),
             "Relative move command accepted.",
             data={
@@ -391,6 +521,137 @@ class DroneController:
                 "target_altitude_m": altitude_m,
                 "target_latitude_deg": target_latitude_deg,
                 "target_longitude_deg": target_longitude_deg,
+            },
+        )
+
+    async def yaw_relative(self, delta_deg: float) -> CommandResult:
+        snapshot = self._telemetry.get_snapshot()
+        if snapshot.latitude_deg is None or snapshot.longitude_deg is None:
+            return CommandResult.fail(
+                "Current position is unavailable; cannot adjust heading.",
+                ErrorCode.CONNECTION_LOST,
+            )
+
+        if snapshot.absolute_altitude_m is None:
+            return CommandResult.fail(
+                "Current altitude is unavailable; cannot adjust heading.",
+                ErrorCode.CONNECTION_LOST,
+            )
+
+        target_yaw_deg = self._normalize_yaw_deg((snapshot.yaw_deg or 0.0) + delta_deg)
+        return await self._run_backend_action(
+            lambda: self._backend.goto_location(
+                snapshot.latitude_deg,
+                snapshot.longitude_deg,
+                snapshot.absolute_altitude_m,
+                target_yaw_deg,
+            ),
+            "Heading adjustment command accepted.",
+            data={
+                "delta_deg": delta_deg,
+                "target_yaw_deg": target_yaw_deg,
+                "latitude_deg": snapshot.latitude_deg,
+                "longitude_deg": snapshot.longitude_deg,
+                "absolute_altitude_m": snapshot.absolute_altitude_m,
+            },
+        )
+
+    async def gimbal_pitch_relative(self, delta_deg: float) -> CommandResult:
+        snapshot = self._telemetry.get_snapshot()
+        if not snapshot.connected:
+            return CommandResult.fail(
+                "The vehicle is not connected.",
+                ErrorCode.CONNECTION_LOST,
+            )
+
+        try:
+            await self._backend.gimbal_pitch_relative(delta_deg)
+        except NotImplementedError:
+            return CommandResult.fail(
+                "Gimbal pitch control is unavailable on the active backend.",
+                ErrorCode.NOT_IMPLEMENTED,
+            )
+        except Exception as exc:
+            return CommandResult.fail(
+                "Gimbal pitch adjustment command failed.",
+                ErrorCode.BACKEND_ERROR,
+                data={"delta_deg": delta_deg, "details": str(exc)},
+            )
+
+        return CommandResult.ok(
+            "Gimbal pitch adjustment command accepted.",
+            data={"delta_deg": delta_deg},
+        )
+
+    async def gimbal_yaw_relative(self, delta_deg: float) -> CommandResult:
+        snapshot = self._telemetry.get_snapshot()
+        if not snapshot.connected:
+            return CommandResult.fail(
+                "The vehicle is not connected.",
+                ErrorCode.CONNECTION_LOST,
+            )
+
+        try:
+            await self._backend.gimbal_yaw_relative(delta_deg)
+        except NotImplementedError:
+            return CommandResult.fail(
+                "Gimbal yaw control is disabled; the camera stays aligned with the drone nose.",
+                ErrorCode.NOT_IMPLEMENTED,
+            )
+        except Exception as exc:
+            return CommandResult.fail(
+                "Gimbal yaw adjustment command failed.",
+                ErrorCode.BACKEND_ERROR,
+                data={"delta_deg": delta_deg, "details": str(exc)},
+            )
+
+        return CommandResult.ok(
+            "Gimbal yaw adjustment command accepted.",
+            data={"delta_deg": delta_deg},
+        )
+
+    async def point_gimbal_at(
+        self,
+        latitude_deg: float,
+        longitude_deg: float,
+        absolute_altitude_m: float,
+    ) -> CommandResult:
+        snapshot = self._telemetry.get_snapshot()
+        if not snapshot.connected:
+            return CommandResult.fail(
+                "The vehicle is not connected.",
+                ErrorCode.CONNECTION_LOST,
+            )
+
+        try:
+            await self._backend.set_roi_location(
+                latitude_deg,
+                longitude_deg,
+                absolute_altitude_m,
+            )
+        except NotImplementedError:
+            return CommandResult.fail(
+                "Gimbal ROI control is unavailable on the active backend.",
+                ErrorCode.NOT_IMPLEMENTED,
+            )
+        except Exception as exc:
+            return CommandResult.fail(
+                "Gimbal ROI command failed.",
+                ErrorCode.BACKEND_ERROR,
+                data={
+                    "latitude_deg": latitude_deg,
+                    "longitude_deg": longitude_deg,
+                    "absolute_altitude_m": absolute_altitude_m,
+                    "details": str(exc),
+                },
+            )
+
+        return CommandResult.ok(
+            "Gimbal ROI command accepted.",
+            data={
+                "latitude_deg": latitude_deg,
+                "longitude_deg": longitude_deg,
+                "absolute_altitude_m": absolute_altitude_m,
             },
         )
 
@@ -424,6 +685,57 @@ class DroneController:
             on_success=lambda: self._telemetry.update(flight_mode="ORBIT"),
         )
 
+    async def guided_takeoff(
+        self,
+        altitude_m: float,
+        connection_string: str | None = None,
+    ) -> CommandResult:
+        snapshot = self._telemetry.get_snapshot()
+        if not snapshot.connected:
+            connect_result = await self.connect(connection_string)
+            if not connect_result.success:
+                return connect_result
+
+        snapshot = self._telemetry.get_snapshot()
+        if not snapshot.armed:
+            preflight_timeout = getattr(
+                self._settings, "preflight_wait_timeout_s", self._DEFAULT_PREFLIGHT_WAIT_TIMEOUT_S
+            )
+            try:
+                await self._telemetry.wait_for(
+                    lambda telemetry: (
+                        telemetry.connected
+                        and telemetry.is_global_position_ok
+                        and telemetry.is_home_position_ok
+                        and telemetry.is_gyrometer_calibration_ok
+                        and telemetry.is_accelerometer_calibration_ok
+                        and telemetry.battery_percent is not None
+                        and telemetry.battery_percent >= self._settings.min_battery_percent
+                    ),
+                    timeout_s=preflight_timeout,
+                )
+            except TimeoutError:
+                snapshot = self._telemetry.get_snapshot()
+                return CommandResult.fail(
+                    "Vehicle was not ready for guided takeoff within the preflight timeout. "
+                    "Check that GPS/EKF2 has converged (global_position_ok, home_position_ok) "
+                    "and sensors are calibrated.",
+                    ErrorCode.PREFLIGHT_FAILED,
+                    data={
+                        "is_global_position_ok": snapshot.is_global_position_ok,
+                        "is_home_position_ok": snapshot.is_home_position_ok,
+                        "is_gyrometer_calibration_ok": snapshot.is_gyrometer_calibration_ok,
+                        "is_accelerometer_calibration_ok": snapshot.is_accelerometer_calibration_ok,
+                        "battery_percent": snapshot.battery_percent,
+                        "preflight_wait_timeout_s": preflight_timeout,
+                    },
+                )
+            arm_result = await self.arm()
+            if not arm_result.success:
+                return arm_result
+
+        return await self.takeoff(altitude_m)
+
     async def run_mission(self, waypoints: list[WaypointInput]) -> CommandResult:
         try:
             return await self._mission_manager.run(self._backend, waypoints)
@@ -446,6 +758,9 @@ class DroneController:
     async def _after_connect(self) -> None:
         await self._telemetry.update(connected=True)
         await self._telemetry.start(self._backend)
+
+    def _normalize_yaw_deg(self, yaw_deg: float) -> float:
+        return ((yaw_deg + 180.0) % 360.0) - 180.0
 
     async def _run_backend_action(
         self,

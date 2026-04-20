@@ -13,20 +13,29 @@ READ_ONLY_COMMANDS = {"get_status", "get_telemetry"}
 RATE_LIMIT_EXEMPT_COMMANDS = READ_ONLY_COMMANDS | {"land", "rtl"}
 
 ALLOWED_COMMANDS_BY_STATE: dict[DroneState, set[str]] = {
-    DroneState.DISCONNECTED: {"connect", *READ_ONLY_COMMANDS},
-    DroneState.CONNECTED: {"arm", *READ_ONLY_COMMANDS},
-    DroneState.READY: {"arm", *READ_ONLY_COMMANDS},
-    DroneState.ARMED: {"disarm", "takeoff", *READ_ONLY_COMMANDS},
+    DroneState.DISCONNECTED: {"connect", "guided_takeoff", *READ_ONLY_COMMANDS},
+    DroneState.CONNECTED: {"arm", "guided_takeoff", "gimbal_pitch_relative", *READ_ONLY_COMMANDS},
+    DroneState.READY: {"arm", "guided_takeoff", "gimbal_pitch_relative", *READ_ONLY_COMMANDS},
+    DroneState.ARMED: {
+        "disarm",
+        "takeoff",
+        "guided_takeoff",
+        "yaw_relative",
+        "gimbal_pitch_relative",
+        *READ_ONLY_COMMANDS,
+    },
     DroneState.AIRBORNE: {
         "land",
         "hold",
         "rtl",
         "goto_relative",
+        "yaw_relative",
+        "gimbal_pitch_relative",
         "orbit",
         "run_mission",
         *READ_ONLY_COMMANDS,
     },
-    DroneState.LANDING: {"land", "hold", "rtl", *READ_ONLY_COMMANDS},
+    DroneState.LANDING: {"land", "hold", "rtl", "gimbal_pitch_relative", *READ_ONLY_COMMANDS},
     DroneState.FAULT: {"connect", *READ_ONLY_COMMANDS},
 }
 
@@ -43,7 +52,10 @@ class SafetyValidator:
         command_name: str,
         telemetry: TelemetrySnapshot,
         *,
+        enforce_rate_limit: bool = True,
         altitude_m: float | None = None,
+        delta_deg: float | None = None,
+        connection_string: str | None = None,
         north_m: float | None = None,
         east_m: float | None = None,
         latitude_deg: float | None = None,
@@ -68,6 +80,8 @@ class SafetyValidator:
                 east_m=east_m,
                 altitude_m=altitude_m,
             )
+        elif command_name == "guided_takeoff":
+            violation = self._validate_takeoff(altitude_m)
         elif command_name == "orbit":
             violation = self._validate_orbit(
                 telemetry,
@@ -85,9 +99,10 @@ class SafetyValidator:
         if violation is not None:
             return violation
 
-        rate_violation = self._check_rate_limit(command_name)
-        if rate_violation is not None:
-            return rate_violation
+        if enforce_rate_limit:
+            rate_violation = self._check_rate_limit(command_name)
+            if rate_violation is not None:
+                return rate_violation
 
         return None
 

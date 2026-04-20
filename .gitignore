@@ -2,6 +2,27 @@
 AGENTS.md
 agents-knowledge-base/
 
+# Bad pip install artifacts (e.g. pip install =1.0.0)
+=*/
+=*
+
+# macOS path leaks
+Users/
+
+# Root-level junk (accidental copies; canonical versions live in scripts/ or tests/)
+/config.py
+/model.config
+/launch_live_stack.sh
+/launch_taltech_live_stack.sh
+/open_gazebo_gui.sh
+/resolve_desktop_session_env.py
+/taltech_campus.sdf
+/taltech_campus.world
+/test_classic_world_assets.py
+/test_config.py
+/test_resolve_desktop_session_env.py
+/test_sitl_profile.py
+
 # Environment
 .env
 .venv/
@@ -22,6 +43,9 @@ __pycache__/
 # Large mesh files (OBJ, textures) — too big for git without LFS
 sim/gazebo-classic/models/*/meshes/*.obj
 sim/gazebo-classic/models/*/meshes/*.jpg
+sim/gazebo-classic/models/*/meshes/*.png
+sim/gazebo-classic/models/*/meshes/*.mtl
+sim/gazebo-classic/models/*/meshes/*.material
 sim/gazebo-classic/models/*/meshes/textures/
 
 # Build and results
@@ -29,4 +53,5 @@ build/
 dist/
 results/
 .run/
+.cache/
 evaluation/results/

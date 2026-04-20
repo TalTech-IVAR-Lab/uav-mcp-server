@@ -3,7 +3,7 @@
 set -euo pipefail
 
 sitl_supported_models() {
-  printf '%s\n' "gz_x500 gazebo-classic gazebo-classic_iris_fpv_cam"
+  printf '%s\n' "gz_x500 gazebo-classic gazebo-classic_typhoon_h480 gazebo-classic_iris_fpv_cam"
 }
 
 sitl_has_gz_harmonic_stack() {
@@ -27,7 +27,7 @@ sitl_model_runtime() {
     gz_x500)
       printf '%s\n' "harmonic"
       ;;
-    gazebo-classic|gazebo-classic_iris_fpv_cam)
+    gazebo-classic|gazebo-classic_typhoon_h480|gazebo-classic_iris_fpv_cam)
       printf '%s\n' "classic"
       ;;
     *)
@@ -46,7 +46,10 @@ sitl_make_target() {
       printf '%s\n' "gz_x500"
       ;;
     gazebo-classic)
-      printf '%s\n' "gazebo-classic_iris_fpv_cam"
+      printf '%s\n' "gazebo-classic_typhoon_h480"
+      ;;
+    gazebo-classic_typhoon_h480)
+      printf '%s\n' "gazebo-classic_typhoon_h480"
       ;;
     gazebo-classic_iris_fpv_cam)
       printf '%s\n' "gazebo-classic_iris_fpv_cam"

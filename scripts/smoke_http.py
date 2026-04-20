@@ -17,13 +17,17 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--mode",
         default="connect",
-        choices=("status", "connect", "flight"),
-        help="Validation depth. 'flight' performs a full arm/takeoff/goto/land cycle.",
+        choices=("status", "connect", "gimbal", "flight"),
+        help=(
+            "Validation depth. 'gimbal' verifies gimbal pitch control. "
+            "'flight' performs a full arm/takeoff/goto/land cycle."
+        ),
     )
     parser.add_argument("--timeout", default=60.0, type=float)
     parser.add_argument("--takeoff-altitude", default=3.0, type=float)
     parser.add_argument("--north-m", default=5.0, type=float)
     parser.add_argument("--east-m", default=0.0, type=float)
+    parser.add_argument("--gimbal-step-deg", default=10.0, type=float)
     return parser
 
 
@@ -75,6 +79,30 @@ async def _ensure_connected(session: ClientSession, timeout: float) -> dict:
     )
 
 
+async def _ensure_link_connected(session: ClientSession, timeout: float) -> dict:
+    initial = (await session.call_tool("get_telemetry")).structuredContent
+    _dump("initial_telemetry", initial)
+
+    if initial["state"] == "fault":
+        raise RuntimeError(f"Server started in fault state: {initial}")
+
+    if initial["connected"]:
+        return initial
+
+    if initial["state"] == "disconnected":
+        connect = await _call(session, "connect")
+        if not connect["success"]:
+            raise RuntimeError(f"connect failed: {connect}")
+        await anyio.sleep(1.0)
+
+    return await _wait_for(
+        session,
+        "connected_telemetry",
+        lambda snapshot: snapshot["connected"],
+        timeout,
+    )
+
+
 async def _run_status(session: ClientSession, timeout: float) -> None:
     tools = await session.list_tools()
     _dump("tools", [tool.name for tool in tools.tools])
@@ -84,6 +112,22 @@ async def _run_status(session: ClientSession, timeout: float) -> None:
 async def _run_connect(session: ClientSession, timeout: float) -> None:
     ready = await _ensure_connected(session, timeout)
     _dump("connect_summary", ready)
+
+
+async def _run_gimbal(session: ClientSession, timeout: float, *, gimbal_step_deg: float) -> None:
+    connected = await _ensure_link_connected(session, timeout)
+    _dump("gimbal_ready", connected)
+
+    for delta_deg in (-abs(gimbal_step_deg), abs(gimbal_step_deg)):
+        result = await _call(session, "gimbal_pitch_relative", {"delta_deg": delta_deg})
+        if not result["success"]:
+            raise RuntimeError(f"gimbal_pitch_relative({delta_deg}) failed: {result}")
+        await anyio.sleep(0.5)
+
+    status = await _call(session, "get_status")
+    if not status["success"]:
+        raise RuntimeError(f"get_status failed: {status}")
+    _dump("gimbal_summary", {"delta_deg": gimbal_step_deg})
 
 
 async def _run_flight(
@@ -185,6 +229,8 @@ async def _main(args: argparse.Namespace) -> None:
                 await _run_status(session, args.timeout)
             elif args.mode == "connect":
                 await _run_connect(session, args.timeout)
+            elif args.mode == "gimbal":
+                await _run_gimbal(session, args.timeout, gimbal_step_deg=args.gimbal_step_deg)
             else:
                 await _run_flight(
                     session,

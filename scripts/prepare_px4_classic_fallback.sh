@@ -7,6 +7,7 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 PX4_DIR="${PX4_DIR:-$REPO_ROOT/../PX4-Autopilot}"
 PX4_CMAKE_FILE="$PX4_DIR/src/modules/simulation/simulator_mavlink/sitl_targets_gazebo-classic.cmake"
 GAZEBO_SUBMODULE_CMAKE_FILE="$PX4_DIR/Tools/simulation/gazebo-classic/sitl_gazebo-classic/CMakeLists.txt"
+GAZEBO_CLASSIC_RUN_FILE="$PX4_DIR/Tools/simulation/gazebo-classic/sitl_run.sh"
 
 if [ ! -f "$PX4_CMAKE_FILE" ]; then
   echo "PX4 file not found: $PX4_CMAKE_FILE" >&2
@@ -19,7 +20,12 @@ if [ ! -f "$GAZEBO_SUBMODULE_CMAKE_FILE" ]; then
   exit 1
 fi
 
-python3 - "$PX4_CMAKE_FILE" "$GAZEBO_SUBMODULE_CMAKE_FILE" <<'PY'
+if [ ! -f "$GAZEBO_CLASSIC_RUN_FILE" ]; then
+  echo "Gazebo Classic launcher file not found: $GAZEBO_CLASSIC_RUN_FILE" >&2
+  exit 1
+fi
+
+python3 - "$PX4_CMAKE_FILE" "$GAZEBO_SUBMODULE_CMAKE_FILE" "$GAZEBO_CLASSIC_RUN_FILE" <<'PY'
 from pathlib import Path
 import sys
 
@@ -48,13 +54,28 @@ def patch_gazebo_cmake(path: Path) -> bool:
     return True
 
 
+def patch_classic_spawn_pose(path: Path) -> bool:
+    old = """\twhile gz model --verbose --spawn-file="${modelpath}/${model}/${model_name}.sdf" --model-name=${model} -x 1.01 -y 0.98 -z 0.83 2>&1 | grep -q "An instance of Gazebo is not running."; do\n"""
+    new = """\tspawn_x="${PX4_GZ_MODEL_POSE_X:-1.01}"\n\tspawn_y="${PX4_GZ_MODEL_POSE_Y:-0.98}"\n\tspawn_z="${PX4_GZ_MODEL_POSE_Z:-0.83}"\n\tspawn_yaw="${PX4_GZ_MODEL_POSE_YAW:-0.0}"\n\n\twhile gz model --verbose --spawn-file="${modelpath}/${model}/${model_name}.sdf" --model-name=${model} -x "${spawn_x}" -y "${spawn_y}" -z "${spawn_z}" -Y "${spawn_yaw}" 2>&1 | grep -q "An instance of Gazebo is not running."; do\n"""
+    text = path.read_text()
+    if 'spawn_x="${PX4_GZ_MODEL_POSE_X:-1.01}"' in text:
+        return False
+    if old not in text:
+        raise RuntimeError(f"Could not find expected spawn line in {path}")
+    path.write_text(text.replace(old, new))
+    return True
+
+
 px4_path = Path(sys.argv[1])
 gazebo_path = Path(sys.argv[2])
+run_path = Path(sys.argv[3])
 px4_changed = patch_px4_cmake(px4_path)
 gazebo_changed = patch_gazebo_cmake(gazebo_path)
+run_changed = patch_classic_spawn_pose(run_path)
 
 print(f"PX4 cmake patched: {px4_changed}")
 print(f"Gazebo Classic submodule patched: {gazebo_changed}")
+print(f"Gazebo Classic spawn pose patched: {run_changed}")
 PY
 
 echo "Gazebo Classic fallback patch is ready in: $PX4_DIR"
