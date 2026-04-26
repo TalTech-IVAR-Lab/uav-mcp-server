@@ -487,6 +487,7 @@ DASHBOARD_HTML = """\
       <h1>UAV MCP Interface</h1>
     </div>
     <div class="status-strip">
+      <a href="/dashboard/observability/" class="chip live" style="text-decoration:none;"><span class="dot"></span><span>Observability</span></a>
       <div id="state-chip" class="chip"><span class="dot"></span><span>Initializing</span></div>
       <div id="conn-chip" class="chip err"><span class="dot"></span><span>Backend offline</span></div>
       <div id="camera-chip" class="chip warn"><span class="dot"></span><span>Camera pending</span></div>
