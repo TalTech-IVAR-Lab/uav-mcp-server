@@ -12,14 +12,14 @@ from collections.abc import Callable, Sequence
 from contextlib import AbstractAsyncContextManager, AsyncExitStack
 from dataclasses import dataclass
 from datetime import datetime, timezone
-
-UTC = timezone.utc
 from pathlib import Path
 from typing import Any
 
 import anyio
 from mcp import ClientSession
 from mcp.client.streamable_http import streamable_http_client
+
+UTC = timezone.utc
 
 
 JsonDict = dict[str, Any]

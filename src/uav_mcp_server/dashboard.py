@@ -14,8 +14,6 @@ import re
 from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-
-UTC = timezone.utc
 from typing import Any
 
 from starlette.requests import Request
@@ -28,6 +26,7 @@ from uav_mcp_server.types import CommandResult, ErrorCode, OrbitYawBehavior, Tel
 
 logger = logging.getLogger(__name__)
 
+UTC = timezone.utc
 MAX_EVENTS = 200
 
 DASHBOARD_COMMANDS = frozenset({

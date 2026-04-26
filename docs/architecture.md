@@ -45,6 +45,7 @@ Future iteration: expose telemetry as an MCP Resource with subscription support 
 
 - `server.py` wires the FastMCP tool surface and read-only resources
 - `dashboard.py` and `dashboard_ui.py` provide the operator web surface on the same process and port
+- `observability.py` and `observability_ui.py` provide a read-only thesis analysis surface for latency, reliability, safety, runtime context, and benchmark artifacts
 - `safety.py` owns state, preflight, bounds, geofence, and rate-limit checks
 - `drone.py` keeps the control path testable by depending on a backend protocol instead of directly on MAVSDK objects and now includes orbit dispatch
 - `telemetry.py` owns the in-memory `TelemetrySnapshot` cache and telemetry subscriptions, including attitude
@@ -64,6 +65,7 @@ Future iteration: expose telemetry as an MCP Resource with subscription support 
 - waypoint mission execution
 - telemetry and status
 - operator web UI with telemetry, event log, live map, camera feed, target selection, and browser voice control
+- observability page with benchmark artifact exploration, latency percentiles, safety rejection analysis, runtime context, and JSON export
 
 ## Deferred scope
 

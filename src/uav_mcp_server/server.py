@@ -9,8 +9,6 @@ import re
 from collections import deque
 from dataclasses import dataclass
 from datetime import datetime, timezone
-
-UTC = timezone.utc
 from math import atan2, degrees
 from pathlib import Path
 from time import monotonic
@@ -59,6 +57,7 @@ SERVER_INSTRUCTIONS = (
     "outside the exposed tools."
 )
 
+UTC = timezone.utc
 BENCHMARK_NAMES = ("latency", "reliability", "safety")
 RUN_TIMESTAMP_PATTERN = re.compile(r"-(\d{8}T\d{6}Z)$")
 

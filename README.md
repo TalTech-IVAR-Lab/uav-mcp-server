@@ -12,6 +12,7 @@ The project is designed for two workflows:
 - Safe MCP tool surface for connect, launch, movement, orbit, mission, hold, RTL, and telemetry queries
 - Safety layer for state gating, preflight checks, geofence enforcement, altitude and speed limits, and rate limiting
 - Operator dashboard with telemetry, event stream, live map, target management, manual controls, and camera targeting
+- Read-only observability dashboard for thesis latency, reliability, safety, and runtime evidence
 - Visual target workflows for approach and orbit around a selected map or camera target
 - Gimbal pitch control with forward-facing alignment and ROI-based target tracking during orbit workflows
 - AI copilot chat for planning and executing dashboard commands, with queued execution when multiple requests are sent
@@ -214,6 +215,7 @@ After launch:
 
 - MCP HTTP endpoint: `http://127.0.0.1:8000/mcp`
 - Operator dashboard: `http://127.0.0.1:8000/dashboard/`
+- Observability dashboard: `http://127.0.0.1:8000/dashboard/observability/`
 
 ### 10. Verify the installation
 

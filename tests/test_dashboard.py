@@ -155,6 +155,7 @@ async def test_dashboard_index_returns_html(dashboard_app) -> None:
     assert "runtime-airframe" in resp.text
     assert "eval-latency" in resp.text
     assert "flag-preflight" in resp.text
+    assert "/dashboard/observability/" in resp.text
 
 
 @pytest.mark.asyncio
@@ -200,6 +201,18 @@ async def test_dashboard_api_config_exposes_map_and_camera_settings(dashboard_ap
     assert data["manual_control"]["supports_yaw"] is True
     assert data["monitoring"]["runtime_health_url"] == "/dashboard/api/runtime-health"
     assert data["monitoring"]["evaluation_summary_url"] == "/dashboard/api/evaluation-summary"
+
+
+@pytest.mark.asyncio
+async def test_dashboard_observability_index_returns_html(dashboard_app) -> None:
+    from starlette.testclient import TestClient
+
+    app, _, _ = dashboard_app
+    client = TestClient(app, raise_server_exceptions=False)
+    resp = client.get("/dashboard/observability/")
+    assert resp.status_code == 200
+    assert "UAV MCP Observability" in resp.text
+    assert "/dashboard/api/observability/summary" in resp.text
 
 
 @pytest.mark.asyncio
