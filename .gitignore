@@ -55,3 +55,4 @@ results/
 .run/
 .cache/
 evaluation/results/
+observability.sqlite3

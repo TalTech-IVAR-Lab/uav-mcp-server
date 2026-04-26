@@ -1432,13 +1432,19 @@ def create_server(
                 selected_target = AssistantTarget.model_validate(params["selected_target"])
             except Exception:
                 selected_target = None
+                
+        started_at = monotonic()
+        telemetry_before = current_snapshot()
+        
         plan = await assistant.plan(
             operator_text,
-            telemetry=current_snapshot(),
+            telemetry=telemetry_before,
             selected_target=selected_target,
             grounding=await _assistant_grounding(),
         )
-        return {
+        
+        duration_ms = round((monotonic() - started_at) * 1000.0, 3)
+        result_dict = {
             "source": plan.source,
             "operator_text": plan.operator_text,
             "assistant_text": plan.assistant_text,
@@ -1454,6 +1460,24 @@ def create_server(
             "selected_target": selected_target.model_dump(mode="json") if selected_target else None,
             "fallback_reason": plan.fallback_reason,
         }
+        
+        observability.record_event(
+            ObservabilityEvent(
+                timestamp=now_iso(),
+                source="assistant",
+                action="plan",
+                command="plan",
+                success=plan.fallback_reason is None,
+                duration_ms=duration_ms,
+                message=plan.assistant_text,
+                request={"operator_text": operator_text},
+                response=result_dict,
+                telemetry_before=telemetry_before.model_dump(mode="json"),
+                telemetry_after=current_snapshot().model_dump(mode="json"),
+            )
+        )
+        
+        return result_dict
 
     async def _dashboard_assistant_execute(params: dict[str, Any]) -> dict[str, Any]:
         operator_text = str(params.get("text", "")).strip()

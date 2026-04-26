@@ -14,7 +14,7 @@ import uuid
 from collections import Counter, defaultdict
 from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from statistics import mean
 from typing import Any
@@ -194,31 +194,119 @@ class ObservabilityStore:
             ).fetchall()
         return [self._row_to_dict(row) for row in rows]
 
-    def summary(self) -> dict[str, Any]:
+    def summary(self, minutes: int = 10, bucket_size_s: int = 2) -> dict[str, Any]:
         with self._connect() as connection:
-            rows = connection.execute("SELECT * FROM observability_events").fetchall()
+            rows = connection.execute("SELECT * FROM observability_events ORDER BY timestamp ASC").fetchall()
 
         events = [self._row_to_dict(row) for row in rows]
-        by_command = Counter(str(event.get("command") or "unknown") for event in events)
-        by_error = Counter(str(event.get("error_code") or "none") for event in events)
+        
+        command_events = [e for e in events if e.get("action") == "command"]
+        plan_events = [e for e in events if e.get("action") == "plan" and e.get("source") == "assistant"]
+        
+        by_command = Counter(str(event.get("command") or "unknown") for event in command_events)
+        by_error = Counter(str(event.get("error_code") or "none") for event in command_events)
+        
+        latencies_by_command: dict[str, list[float]] = defaultdict(list)
+        for event in command_events:
+            cmd = str(event.get("command") or "unknown")
+            if isinstance(event.get("duration_ms"), (int, float)):
+                latencies_by_command[cmd].append(float(event["duration_ms"]))
+                
+        by_command_latency = {
+            cmd: latency_stats(lats)
+            for cmd, lats in latencies_by_command.items()
+        }
+        
         safety_rejections = [
             event
-            for event in events
+            for event in command_events
             if event.get("success") is False and event.get("error_code") not in {None, "none"}
         ]
         latencies = [
             float(event["duration_ms"])
-            for event in events
+            for event in command_events
             if isinstance(event.get("duration_ms"), (int, float))
         ]
+        
+        plan_latencies = [
+            float(event["duration_ms"])
+            for event in plan_events
+            if isinstance(event.get("duration_ms"), (int, float))
+        ]
+        plan_success_count = sum(1 for event in plan_events if event.get("success") is True)
+        plan_success_rate = plan_success_count / len(plan_events) if plan_events else None
+        
+        # Calculate Timeseries
+        now = datetime.now(timezone.utc)
+        start_time = now - timedelta(minutes=minutes)
+        start_ts = start_time.timestamp()
+        
+        buckets_data: dict[int, list[dict[str, Any]]] = {}
+        for e in events:
+            if not e.get("timestamp"):
+                continue
+            try:
+                dt = datetime.fromisoformat(e["timestamp"])
+                ts = dt.timestamp()
+                if ts < start_ts:
+                    continue
+                bucket_idx = int((ts - start_ts) // bucket_size_s)
+                if bucket_idx not in buckets_data:
+                    buckets_data[bucket_idx] = []
+                buckets_data[bucket_idx].append(e)
+            except Exception:
+                pass
+                
+        timestamps = []
+        throughputSuccess = []
+        throughputError = []
+        latencyP95 = []
+        latencyMean = []
+        
+        num_buckets = int((now.timestamp() - start_ts) // bucket_size_s) + 1
+        for i in range(num_buckets):
+            b_time = start_time + timedelta(seconds=i * bucket_size_s)
+            timestamps.append(b_time.isoformat())
+            
+            b_events = buckets_data.get(i, [])
+            success_count = sum(1 for e in b_events if e.get("action") == "command" and e.get("success") is True)
+            error_count = sum(1 for e in b_events if e.get("action") == "command" and e.get("success") is False)
+            
+            throughputSuccess.append(success_count)
+            throughputError.append(error_count)
+            
+            lats = [float(e["duration_ms"]) for e in b_events if e.get("action") == "command" and isinstance(e.get("duration_ms"), (int, float))]
+            if lats:
+                stats = latency_stats(lats)
+                latencyP95.append(stats["p95"] or 0)
+                latencyMean.append(stats["mean"] or 0)
+            else:
+                latencyP95.append(0)
+                latencyMean.append(0)
+
+        timeseries = {
+            "timestamps": timestamps,
+            "throughputSuccess": throughputSuccess,
+            "throughputError": throughputError,
+            "latencyP95": latencyP95,
+            "latencyMean": latencyMean,
+        }
+        
         return {
             "event_count": len(events),
-            "command_count": sum(1 for event in events if event.get("command")),
+            "command_count": len(command_events),
             "safety_rejection_count": len(safety_rejections),
             "by_command": dict(by_command),
+            "by_command_latency": by_command_latency,
             "by_error_code": dict(by_error),
             "latency_ms": latency_stats(latencies),
+            "assistant_metrics": {
+                "latency_ms": latency_stats(plan_latencies),
+                "success_rate": plan_success_rate,
+                "plan_count": len(plan_events),
+            },
             "latest_event": events[-1] if events else None,
+            "timeseries": timeseries,
         }
 
     def _row_to_dict(self, row: sqlite3.Row) -> dict[str, Any]:

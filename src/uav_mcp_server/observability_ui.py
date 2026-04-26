@@ -8,377 +8,701 @@ OBSERVABILITY_HTML = """\
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>UAV MCP Observability</title>
 <meta name="description" content="Latency, reliability, safety, and runtime observability dashboard for the UAV MCP thesis system.">
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fira+Code:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <style>
   *, *::before, *::after { box-sizing: border-box; }
   :root {
-    --bg: #07110f;
-    --bg-2: #0d1d18;
-    --panel: rgba(236, 230, 207, 0.07);
-    --panel-strong: rgba(236, 230, 207, 0.12);
-    --line: rgba(236, 230, 207, 0.14);
-    --text: #f3ecd8;
-    --muted: #9ca997;
-    --ink: #06100d;
-    --accent: #d7ff4f;
-    --blue: #76e4ff;
-    --green: #7cff9b;
-    --amber: #ffbf66;
-    --red: #ff6d6d;
-    --shadow: 0 24px 80px rgba(0,0,0,0.35);
-    --radius: 18px;
-    --font: 'IBM Plex Sans', system-ui, sans-serif;
-    --mono: 'IBM Plex Mono', monospace;
+    /* Grafana Dark Theme Colors */
+    --bg: #111217;
+    --panel-bg: #181b1f;
+    --panel-border: #22252b;
+    --panel-header: #141619;
+    --text-main: #cdd9e5;
+    --text-muted: #8e99a8;
+    
+    --green: #73bf69;
+    --red: #f2495c;
+    --yellow: #fade2a;
+    --blue: #5794f2;
+    --orange: #ff9830;
+    --purple: #b877d9;
+    
+    --font-main: 'Inter', system-ui, sans-serif;
+    --font-mono: 'Fira Code', monospace;
+    --radius: 4px;
+    --shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
   }
-  html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--text); font-family: var(--font); }
-  body {
-    background:
-      radial-gradient(circle at 15% 10%, rgba(215,255,79,0.12), transparent 28%),
-      radial-gradient(circle at 88% 8%, rgba(118,228,255,0.12), transparent 28%),
-      linear-gradient(135deg, #07110f 0%, #11251e 48%, #07110f 100%);
+  
+  html, body { 
+    margin: 0; min-height: 100vh; background: var(--bg); color: var(--text-main); font-family: var(--font-main); 
+    font-size: 13px; line-height: 1.5;
   }
-  a { color: inherit; }
-  .shell { max-width: 1720px; margin: 0 auto; padding: 24px; }
-  .hero {
-    display: grid; grid-template-columns: minmax(320px, 1.2fr) minmax(300px, 0.8fr);
-    gap: 18px; margin-bottom: 18px;
+  
+  a { color: var(--blue); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  
+  /* Topbar */
+  .topbar {
+    display: flex; justify-content: space-between; align-items: center;
+    background: var(--panel-header); border-bottom: 1px solid var(--panel-border);
+    padding: 12px 24px;
   }
-  .hero-card, .panel {
-    background: linear-gradient(160deg, var(--panel), rgba(0,0,0,0.22));
-    border: 1px solid var(--line); border-radius: var(--radius);
-    box-shadow: var(--shadow); backdrop-filter: blur(18px);
-  }
-  .hero-card { padding: 28px; min-height: 250px; position: relative; overflow: hidden; }
-  .hero-card::after {
-    content: ""; position: absolute; inset: auto -80px -120px auto;
-    width: 360px; height: 360px; border-radius: 50%;
-    background: radial-gradient(circle, rgba(215,255,79,0.22), transparent 64%);
-  }
-  .eyebrow {
-    color: var(--accent); font-family: var(--mono); font-size: 12px;
-    letter-spacing: 0.16em; text-transform: uppercase; font-weight: 600;
-  }
-  h1 { font-size: clamp(36px, 5vw, 76px); line-height: 0.92; margin: 14px 0 18px; max-width: 900px; }
-  .hero p { max-width: 760px; color: var(--muted); font-size: 16px; line-height: 1.6; margin: 0; }
-  .nav { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 24px; }
+  .topbar-left { display: flex; align-items: center; gap: 16px; }
+  .logo { font-weight: 700; font-size: 16px; color: #fff; letter-spacing: -0.5px; }
+  .topbar-right { display: flex; align-items: center; gap: 12px; }
+  
   .btn {
-    border: 1px solid var(--line); background: rgba(236,230,207,0.08); color: var(--text);
-    padding: 10px 14px; border-radius: 999px; font-weight: 600; text-decoration: none;
-    font-size: 13px; cursor: pointer;
+    background: transparent; border: 1px solid var(--panel-border); color: var(--text-main);
+    padding: 6px 12px; border-radius: var(--radius); font-size: 12px; cursor: pointer; font-family: var(--font-main);
+    font-weight: 500; transition: background 0.2s;
   }
-  .btn.primary { background: var(--accent); color: var(--ink); border-color: var(--accent); }
-  .status-card { padding: 20px; display: grid; gap: 12px; }
-  .status-line { display: flex; justify-content: space-between; gap: 16px; align-items: center; }
-  .pill {
-    display: inline-flex; align-items: center; gap: 8px; border-radius: 999px;
-    padding: 7px 10px; background: rgba(236,230,207,0.08); border: 1px solid var(--line);
-    color: var(--muted); font-size: 12px; font-family: var(--mono);
+  .btn:hover { background: rgba(255,255,255,0.05); }
+  .btn.primary { background: var(--blue); color: #fff; border-color: var(--blue); }
+  .btn.primary:hover { background: #4384e6; }
+  
+  /* Status Pill */
+  .status-pill {
+    display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 600; text-transform: uppercase;
+    padding: 4px 8px; border-radius: 12px; background: rgba(255,255,255,0.05); border: 1px solid var(--panel-border);
   }
-  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
-  .ok .dot { background: var(--green); box-shadow: 0 0 12px var(--green); }
-  .warn .dot { background: var(--amber); box-shadow: 0 0 12px var(--amber); }
-  .err .dot { background: var(--red); box-shadow: 0 0 12px var(--red); }
-  .grid { display: grid; gap: 18px; }
-  .grid.metrics { grid-template-columns: repeat(4, minmax(180px, 1fr)); }
-  .grid.main { grid-template-columns: minmax(520px, 1.1fr) minmax(420px, 0.9fr); align-items: start; }
-  .panel { padding: 18px; min-width: 0; }
-  .panel-head { display: flex; justify-content: space-between; gap: 12px; align-items: start; margin-bottom: 14px; }
-  .panel-title { font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.12em; font-weight: 700; }
-  .metric {
-    min-height: 150px; display: flex; flex-direction: column; justify-content: space-between;
-    background: linear-gradient(145deg, rgba(236,230,207,0.10), rgba(0,0,0,0.16));
+  .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-muted); }
+  .status-pill.ok .status-dot { background: var(--green); box-shadow: 0 0 8px var(--green); }
+  .status-pill.warn .status-dot { background: var(--yellow); box-shadow: 0 0 8px var(--yellow); }
+  .status-pill.err .status-dot { background: var(--red); box-shadow: 0 0 8px var(--red); }
+  
+  /* Dashboard Grid */
+  .dashboard {
+    padding: 16px; display: grid; gap: 12px;
+    grid-template-columns: repeat(12, 1fr);
   }
-  .metric-value { font-size: 34px; line-height: 1; font-weight: 700; font-family: var(--mono); }
-  .metric-sub { color: var(--muted); font-size: 13px; margin-top: 8px; line-height: 1.45; }
-  .metric-accent { color: var(--accent); }
-  .metric-blue { color: var(--blue); }
-  .metric-green { color: var(--green); }
-  .metric-amber { color: var(--amber); }
-  .section { margin-top: 18px; }
-  .chart-wrap { height: 260px; position: relative; border: 1px solid var(--line); border-radius: 14px; overflow: hidden; background: rgba(0,0,0,0.16); }
-  svg { width: 100%; height: 100%; display: block; }
-  .bars { display: grid; gap: 10px; }
-  .bar-row { display: grid; grid-template-columns: 132px 1fr 72px; gap: 10px; align-items: center; font-family: var(--mono); font-size: 12px; }
-  .bar-track { height: 12px; border-radius: 999px; background: rgba(236,230,207,0.10); overflow: hidden; }
-  .bar-fill { height: 100%; background: linear-gradient(90deg, var(--accent), var(--blue)); border-radius: inherit; }
-  .table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 14px; }
-  table { width: 100%; border-collapse: collapse; min-width: 720px; }
-  th, td { padding: 11px 12px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
-  th { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.12em; }
-  td { font-size: 13px; }
-  td.mono, .mono { font-family: var(--mono); }
+  
+  /* Panels */
+  .panel {
+    background: var(--panel-bg); border: 1px solid var(--panel-border);
+    border-radius: var(--radius); box-shadow: var(--shadow);
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+  .panel-header {
+    padding: 8px 12px; display: flex; justify-content: space-between; align-items: center;
+    border-bottom: 1px solid transparent;
+  }
+  .panel-title { font-size: 12px; font-weight: 600; color: var(--text-main); }
+  .panel-body { padding: 12px; flex: 1; display: flex; flex-direction: column; min-height: 0; }
+  
+  /* Grid Sizes */
+  .col-3 { grid-column: span 3; }
+  .col-4 { grid-column: span 4; }
+  .col-6 { grid-column: span 6; }
+  .col-8 { grid-column: span 8; }
+  .col-12 { grid-column: span 12; }
+  
+  @media (max-width: 1200px) {
+    .col-3, .col-4 { grid-column: span 6; }
+  }
+  @media (max-width: 768px) {
+    .col-3, .col-4, .col-6, .col-8 { grid-column: span 12; }
+  }
+  
+  /* Stat Value */
+  .stat-panel { align-items: center; justify-content: center; text-align: center; position: relative; }
+  .stat-value { font-size: 48px; font-weight: 500; font-family: var(--font-mono); line-height: 1; margin: 10px 0; }
+  .stat-sub { font-size: 12px; color: var(--text-muted); }
+  
+  .color-green { color: var(--green); }
+  .color-blue { color: var(--blue); }
+  .color-yellow { color: var(--yellow); }
+  .color-red { color: var(--red); }
+  .color-orange { color: var(--orange); }
+  
+  /* Sparkline Container inside Stat Panel */
+  .sparkline-container {
+    position: absolute; bottom: 0; left: 0; right: 0; height: 40px; opacity: 0.3; pointer-events: none;
+  }
+  
+  /* Chart Containers */
+  .chart-container { position: relative; height: 220px; width: 100%; }
+  
+  /* Tables & Lists */
+  .table-container { overflow-x: auto; max-height: 300px; overflow-y: auto; }
+  table { width: 100%; border-collapse: collapse; text-align: left; }
+  th { 
+    position: sticky; top: 0; background: var(--panel-bg); 
+    padding: 8px 12px; font-size: 11px; text-transform: uppercase; color: var(--text-muted); 
+    font-weight: 600; border-bottom: 1px solid var(--panel-border);
+  }
+  td { padding: 8px 12px; border-bottom: 1px solid var(--panel-border); font-size: 12px; }
   tr:last-child td { border-bottom: none; }
-  .split { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
-  .card-mini { border: 1px solid var(--line); border-radius: 14px; padding: 14px; background: rgba(0,0,0,0.14); }
-  .list { display: grid; gap: 8px; }
-  .event {
-    display: grid; grid-template-columns: 144px 92px 1fr auto; gap: 10px;
-    padding: 10px 0; border-bottom: 1px solid var(--line); font-size: 12px;
-  }
-  .event:last-child { border-bottom: none; }
-  .event .message { color: var(--muted); }
-  .empty { color: var(--muted); padding: 18px; border: 1px dashed var(--line); border-radius: 14px; }
-  .footer-note { color: var(--muted); font-size: 12px; margin-top: 18px; line-height: 1.5; }
-  @media (max-width: 1160px) {
-    .hero, .grid.main { grid-template-columns: 1fr; }
-    .grid.metrics { grid-template-columns: repeat(2, minmax(180px, 1fr)); }
-  }
-  @media (max-width: 720px) {
-    .shell { padding: 14px; }
-    .grid.metrics, .split { grid-template-columns: 1fr; }
-    .event { grid-template-columns: 1fr; }
-    h1 { font-size: 38px; }
-  }
+  .font-mono { font-family: var(--font-mono); font-size: 11px; }
+  
+  .log-row { display: flex; padding: 4px 8px; border-bottom: 1px solid rgba(255,255,255,0.02); font-family: var(--font-mono); font-size: 11px; }
+  .log-row:hover { background: rgba(255,255,255,0.02); }
+  .log-time { color: var(--text-muted); width: 80px; flex-shrink: 0; }
+  .log-level { width: 60px; flex-shrink: 0; text-transform: uppercase; font-weight: 600; }
+  .log-level.info { color: var(--blue); }
+  .log-level.warn { color: var(--yellow); }
+  .log-level.error { color: var(--red); }
+  .log-level.success { color: var(--green); }
+  .log-cmd { color: var(--orange); width: 140px; flex-shrink: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .log-msg { color: var(--text-main); flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .log-dur { color: var(--text-muted); width: 60px; text-align: right; flex-shrink: 0; }
+  
+  /* Horizontal Bar Gauge */
+  .bar-gauge-row { display: flex; align-items: center; margin-bottom: 8px; }
+  .bar-gauge-label { width: 120px; font-size: 11px; color: var(--text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .bar-gauge-track { flex: 1; height: 12px; background: rgba(255,255,255,0.05); border-radius: 2px; overflow: hidden; margin: 0 12px; }
+  .bar-gauge-fill { height: 100%; border-radius: 2px; }
+  .bar-gauge-value { width: 50px; text-align: right; font-size: 11px; font-family: var(--font-mono); color: var(--text-muted); }
+  
+  /* Scrollbars */
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-track { background: var(--bg); }
+  ::-webkit-scrollbar-thumb { background: #3b4048; border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: #505662; }
 </style>
 </head>
 <body>
-<div class="shell">
-  <section class="hero">
-    <article class="hero-card">
-      <div class="eyebrow">TalTech UAV MCP Thesis Evidence</div>
-      <h1>Observability for latency, reliability, and safety behavior.</h1>
-      <p>
-        This page separates reproducible benchmark artifacts from live operational traces,
-        so thesis claims can be tied back to raw JSON/CSV evidence and the current runtime context.
-      </p>
-      <div class="nav">
-        <a class="btn primary" href="/dashboard/">Operator Dashboard</a>
-        <button id="refresh" class="btn" type="button">Refresh Data</button>
-        <a class="btn" href="/dashboard/api/observability/export">Export JSON</a>
-      </div>
-    </article>
-    <aside class="hero-card status-card">
-      <div class="status-line"><span class="panel-title">Readiness</span><span id="ready-pill" class="pill warn"><span class="dot"></span><span>Loading</span></span></div>
-      <div class="status-line"><span>Latest artifact</span><strong id="latest-run">--</strong></div>
-      <div class="status-line"><span>Runtime profile</span><strong id="runtime-profile">--</strong></div>
-      <div class="status-line"><span>Event store</span><strong id="event-store">--</strong></div>
-      <p class="footer-note" id="summary-note">Waiting for observability API.</p>
-    </aside>
-  </section>
 
-  <section class="grid metrics">
-    <article class="panel metric"><div><div class="panel-title">Latency P95</div><div id="m-latency" class="metric-value metric-accent">--</div></div><div id="m-latency-sub" class="metric-sub">No latency run loaded.</div></article>
-    <article class="panel metric"><div><div class="panel-title">Reliability</div><div id="m-reliability" class="metric-value metric-green">--</div></div><div id="m-reliability-sub" class="metric-sub">No reliability run loaded.</div></article>
-    <article class="panel metric"><div><div class="panel-title">Safety Checks</div><div id="m-safety" class="metric-value metric-amber">--</div></div><div id="m-safety-sub" class="metric-sub">No safety run loaded.</div></article>
-    <article class="panel metric"><div><div class="panel-title">Live Rejections</div><div id="m-rejections" class="metric-value metric-blue">--</div></div><div id="m-rejections-sub" class="metric-sub">Runtime command trace is empty.</div></article>
-  </section>
-
-  <section class="grid main section">
-    <article class="panel">
-      <div class="panel-head"><div><div class="panel-title">Latency Analysis</div><h2>Per-tool middleware and action latency</h2></div><span id="latency-headline" class="pill">--</span></div>
-      <div class="chart-wrap"><svg id="latency-chart" role="img" aria-label="Latency trend chart"></svg></div>
-      <div id="latency-bars" class="bars section"></div>
-    </article>
-
-    <article class="panel">
-      <div class="panel-head"><div><div class="panel-title">Safety Behavior</div><h2>Rejection matrix and safety cases</h2></div><span id="safety-headline" class="pill">--</span></div>
-      <div class="split">
-        <div class="card-mini"><div class="panel-title">Benchmark Scenarios</div><div id="safety-scenarios" class="list section"></div></div>
-        <div class="card-mini"><div class="panel-title">Live Error Codes</div><div id="error-bars" class="bars section"></div></div>
-      </div>
-    </article>
-  </section>
-
-  <section class="grid main section">
-    <article class="panel">
-      <div class="panel-head"><div><div class="panel-title">Benchmark Artifact Explorer</div><h2>Reproducible runs</h2></div><span id="run-count" class="pill">0 runs</span></div>
-      <div class="table-wrap"><table><thead><tr><th>Time</th><th>Benchmark</th><th>Headline</th><th>Records</th><th>Result</th></tr></thead><tbody id="runs-table"></tbody></table></div>
-    </article>
-
-    <article class="panel">
-      <div class="panel-head"><div><div class="panel-title">Live Command Trace</div><h2>Runtime events and validation outcomes</h2></div><span id="event-count" class="pill">0 events</span></div>
-      <div id="events-list" class="list"></div>
-    </article>
-  </section>
-
-  <section class="panel section">
-    <div class="panel-head"><div><div class="panel-title">Runtime Context</div><h2>Configuration evidence for interpreting results</h2></div></div>
-    <div class="split">
-      <div class="card-mini"><div class="panel-title">Stack</div><div id="runtime-stack" class="list section"></div></div>
-      <div class="card-mini"><div class="panel-title">Readiness Flags</div><div id="runtime-flags" class="list section"></div></div>
+<header class="topbar">
+  <div class="topbar-left">
+    <div class="logo">UAV MCP Observability</div>
+    <div id="ready-pill" class="status-pill warn"><span class="status-dot"></span><span>Loading</span></div>
+  </div>
+  <div class="topbar-right">
+    <div style="display: flex; gap: 8px; align-items: center; margin-right: 12px;">
+      <select id="time-window" class="btn" style="padding: 4px 8px;">
+        <option value="15">Last 30s</option>
+        <option value="30">Last 1m</option>
+        <option value="150" selected>Last 5m</option>
+        <option value="300">Last 10m</option>
+      </select>
+      <select id="refresh-rate" class="btn" style="padding: 4px 8px;">
+        <option value="0">Off (Pause)</option>
+        <option value="1000">1s</option>
+        <option value="2000" selected>2s</option>
+        <option value="5000">5s</option>
+      </select>
     </div>
-  </section>
-</div>
+    <button id="refresh" class="btn" title="Force Refresh Data">Refresh</button>
+    <a href="/dashboard/" class="btn primary">Operator Dashboard</a>
+  </div>
+</header>
+
+<main class="dashboard">
+  <!-- ROW 1: KPIs -->
+  <div class="panel col-3 stat-panel">
+    <div class="panel-header"><div class="panel-title">API Latency (P95)</div></div>
+    <div class="panel-body">
+      <div id="m-latency" class="stat-value color-blue">--</div>
+      <div id="m-latency-sub" class="stat-sub">Waiting for data...</div>
+    </div>
+  </div>
+  
+  <div class="panel col-3 stat-panel">
+    <div class="panel-header"><div class="panel-title">System Reliability</div></div>
+    <div class="panel-body">
+      <div id="m-reliability" class="stat-value color-green">--</div>
+      <div id="m-reliability-sub" class="stat-sub">Waiting for data...</div>
+    </div>
+  </div>
+  
+  <div class="panel col-3 stat-panel">
+    <div class="panel-header"><div class="panel-title">Safety Check Pass Rate</div></div>
+    <div class="panel-body">
+      <div id="m-safety" class="stat-value color-orange">--</div>
+      <div id="m-safety-sub" class="stat-sub">Waiting for data...</div>
+    </div>
+  </div>
+  
+  <div class="panel col-3 stat-panel">
+    <div class="panel-header"><div class="panel-title">Runtime Context</div></div>
+    <div class="panel-body">
+      <div id="m-runtime-state" class="stat-value" style="font-size: 24px; margin: 5px 0;">--</div>
+      <div id="m-runtime-sub" class="stat-sub" style="display:flex; flex-direction:column; gap:4px; align-items:center;">
+        <span id="m-runtime-airframe">--</span>
+        <span id="m-runtime-flags" style="font-size: 10px;">--</span>
+      </div>
+    </div>
+  </div>
+  
+  <!-- ROW 1.5: AI Metrics -->
+  <div class="panel col-6 stat-panel" style="border-top: 2px solid var(--purple);">
+    <div class="panel-header"><div class="panel-title">AI Plan Latency (P95)</div></div>
+    <div class="panel-body">
+      <div id="ai-latency" class="stat-value color-purple">--</div>
+      <div id="ai-latency-sub" class="stat-sub">Waiting for AI calls...</div>
+    </div>
+  </div>
+  
+  <div class="panel col-6 stat-panel" style="border-top: 2px solid var(--purple);">
+    <div class="panel-header"><div class="panel-title">AI Plan Success Rate</div></div>
+    <div class="panel-body">
+      <div id="ai-success" class="stat-value color-purple">--</div>
+      <div id="ai-success-sub" class="stat-sub">Waiting for AI calls...</div>
+    </div>
+  </div>
+  
+  <!-- ROW 2: Charts -->
+  <div class="panel col-6">
+    <div class="panel-header"><div class="panel-title">Command Latency Over Time</div></div>
+    <div class="panel-body">
+      <div class="chart-container">
+        <canvas id="latencyChart"></canvas>
+      </div>
+    </div>
+  </div>
+  
+  <div class="panel col-6">
+    <div class="panel-header"><div class="panel-title">Command Throughput & Status</div></div>
+    <div class="panel-body">
+      <div class="chart-container">
+        <canvas id="throughputChart"></canvas>
+      </div>
+    </div>
+  </div>
+  
+  <!-- ROW 3: Distributions -->
+  <div class="panel col-6">
+    <div class="panel-header"><div class="panel-title">Per-Tool Latency (P95)</div></div>
+    <div class="panel-body" style="justify-content: flex-start; overflow-y: auto; max-height: 250px;">
+      <div id="tool-latency-bars" style="width: 100%;">
+        <div style="text-align: center; color: var(--text-muted); font-size: 12px; margin-top: 20px;">No latency data available.</div>
+      </div>
+    </div>
+  </div>
+  
+  <div class="panel col-6">
+    <div class="panel-header"><div class="panel-title">Live Safety Rejections by Code</div></div>
+    <div class="panel-body" style="justify-content: center;">
+      <div id="safety-error-bars">
+        <div style="text-align: center; color: var(--text-muted); font-size: 12px; margin-top: 20px;">No rejections recorded.</div>
+      </div>
+    </div>
+  </div>
+  
+  <!-- ROW 4: Tables / Logs -->
+  <div class="panel col-12">
+    <div class="panel-header"><div class="panel-title">Live Command Trace</div></div>
+    <div class="panel-body" style="padding: 0;">
+      <div class="table-container" style="max-height: 240px; background: #0b0c10;">
+        <div id="log-explorer">
+          <div style="padding: 16px; text-align: center; color: var(--text-muted); font-size: 12px;">No events recorded.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel col-12">
+    <div class="panel-header">
+      <div class="panel-title">Benchmark Artifact Explorer</div>
+      <span id="run-count" style="font-size: 11px; color: var(--text-muted);">0 runs</span>
+    </div>
+    <div class="panel-body" style="padding: 0;">
+      <div class="table-container">
+        <table>
+          <thead>
+            <tr>
+              <th>Time</th>
+              <th>Benchmark</th>
+              <th>Headline</th>
+              <th>Records</th>
+              <th>Result</th>
+            </tr>
+          </thead>
+          <tbody id="runs-table">
+            <tr><td colspan="5" style="text-align: center; color: var(--text-muted);">No benchmark artifacts found.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  
+</main>
 
 <script>
-(function(){
+(function() {
   'use strict';
-
-  const $ = (id) => document.getElementById(id);
-  const api = {
-    summary: '/dashboard/api/observability/summary',
-    runs: '/dashboard/api/observability/runs',
-    events: '/dashboard/api/observability/events?limit=100'
+  
+  // --- Styling Constants for Charts ---
+  const colors = {
+    bg: '#111217',
+    text: '#8e99a8',
+    grid: '#22252b',
+    blue: '#5794f2',
+    green: '#73bf69',
+    red: '#f2495c',
+    yellow: '#fade2a',
+    orange: '#ff9830',
+    purple: '#b877d9'
   };
+  
+  Chart.defaults.color = colors.text;
+  Chart.defaults.font.family = "'Inter', sans-serif";
+  Chart.defaults.plugins.tooltip.backgroundColor = 'rgba(20, 22, 25, 0.9)';
+  Chart.defaults.plugins.tooltip.titleColor = '#fff';
+  Chart.defaults.plugins.tooltip.bodyColor = '#cdd9e5';
+  Chart.defaults.plugins.tooltip.borderColor = colors.grid;
+  Chart.defaults.plugins.tooltip.borderWidth = 1;
+  Chart.defaults.plugins.tooltip.padding = 10;
+  Chart.defaults.plugins.tooltip.cornerRadius = 4;
+  Chart.defaults.plugins.legend.labels.usePointStyle = true;
+  Chart.defaults.plugins.legend.labels.boxWidth = 8;
+  
+  // --- Data History for Time-Series ---
+  const MAX_HISTORY_POINTS = 300;
+  let currentDisplayPoints = 150;
+  
+  const history = {
+    timestamps: [],
+    latencyP95: [],
+    latencyMean: [],
+    throughputSuccess: [],
+    throughputError: []
+  };
+  
+  // --- Initialize Charts ---
+  let latencyChart, throughputChart;
+  
+  function initCharts() {
+    const commonScales = {
+      x: { 
+        grid: { color: colors.grid, drawBorder: false },
+        ticks: { maxTicksLimit: 8, maxRotation: 0 }
+      },
+      y: {
+        grid: { color: colors.grid, drawBorder: false },
+        beginAtZero: true
+      }
+    };
+    
+    // Latency Line Chart
+    const ctxLatency = document.getElementById('latencyChart').getContext('2d');
+    latencyChart = new Chart(ctxLatency, {
+      type: 'line',
+      data: {
+        labels: history.timestamps,
+        datasets: [
+          {
+            label: 'P95 Latency (ms)',
+            data: history.latencyP95,
+            borderColor: colors.blue,
+            backgroundColor: 'rgba(87, 148, 242, 0.1)',
+            borderWidth: 2,
+            pointRadius: 0,
+            pointHoverRadius: 4,
+            fill: true,
+            tension: 0.3
+          },
+          {
+            label: 'Mean Latency (ms)',
+            data: history.latencyMean,
+            borderColor: colors.green,
+            backgroundColor: 'transparent',
+            borderWidth: 2,
+            borderDash: [5, 5],
+            pointRadius: 0,
+            pointHoverRadius: 4,
+            fill: false,
+            tension: 0.3
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
+        scales: commonScales,
+        plugins: {
+          legend: { position: 'top', align: 'end' }
+        }
+      }
+    });
+    
+    // Throughput Stacked Bar Chart
+    const ctxThroughput = document.getElementById('throughputChart').getContext('2d');
+    throughputChart = new Chart(ctxThroughput, {
+      type: 'bar',
+      data: {
+        labels: history.timestamps,
+        datasets: [
+          {
+            label: 'Success',
+            data: history.throughputSuccess,
+            backgroundColor: colors.green,
+            borderRadius: 2
+          },
+          {
+            label: 'Rejection/Error',
+            data: history.throughputError,
+            backgroundColor: colors.red,
+            borderRadius: 2
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
+        scales: {
+          x: { stacked: true, grid: { color: colors.grid, drawBorder: false }, ticks: { maxTicksLimit: 8 } },
+          y: { stacked: true, grid: { color: colors.grid, drawBorder: false }, beginAtZero: true }
+        },
+        plugins: {
+          legend: { position: 'top', align: 'end' }
+        }
+      }
+    });
+  }
 
-  function fmtMs(value) {
-    return Number.isFinite(value) ? `${value.toFixed(value >= 100 ? 0 : 1)} ms` : '--';
-  }
-  function fmtPct(value) {
-    return Number.isFinite(value) ? `${(value * 100).toFixed(0)}%` : '--';
-  }
-  function text(value, fallback='--') {
-    return value === null || value === undefined || value === '' ? fallback : String(value);
-  }
+  // --- Helpers ---
+  const $ = (id) => document.getElementById(id);
+  function fmtMs(v) { return Number.isFinite(v) ? `${v.toFixed(v >= 100 ? 0 : 1)} ms` : '--'; }
+  function fmtPct(v) { return Number.isFinite(v) ? `${(v * 100).toFixed(0)}%` : '--'; }
+  function text(v, fallback='--') { return v === null || v === undefined || v === '' ? fallback : String(v); }
+  
   function setPill(el, ok, label) {
-    el.className = `pill ${ok ? 'ok' : 'warn'}`;
-    el.innerHTML = `<span class="dot"></span><span>${label}</span>`;
-  }
-  function miniRow(label, value) {
-    return `<div class="status-line"><span>${label}</span><strong class="mono">${value}</strong></div>`;
-  }
-  function empty(message) {
-    return `<div class="empty">${message}</div>`;
+    el.className = `status-pill ${ok ? 'ok' : 'err'}`;
+    el.innerHTML = `<span class="status-dot"></span><span>${label}</span>`;
   }
 
-  async function fetchJson(url) {
-    const response = await fetch(url, { headers: { 'Accept': 'application/json' } });
-    if (!response.ok) throw new Error(`${url} returned ${response.status}`);
-    return response.json();
-  }
-
-  function renderLatency(summary) {
+  // --- Rendering Functions ---
+  function renderKPIs(summary) {
+    // Latency
     const latency = summary.benchmarks?.latency;
-    const stats = latency?.derived?.latency_ms || {};
-    $('m-latency').textContent = fmtMs(Number(stats.p95));
-    $('m-latency-sub').textContent = latency ? `Mean ${fmtMs(Number(stats.mean))}, p99 ${fmtMs(Number(stats.p99))}.` : 'No latency benchmark artifact found.';
-    $('latency-headline').textContent = latency?.headline || 'No latency run';
-
-    const byTool = latency?.derived?.by_tool || {};
-    const maxValue = Math.max(1, ...Object.values(byTool).map(item => Number(item.p95 || item.max || 0)));
-    $('latency-bars').innerHTML = Object.entries(byTool).map(([tool, item]) => {
-      const value = Number(item.p95 || item.max || 0);
-      return `<div class="bar-row"><span>${tool}</span><span class="bar-track"><span class="bar-fill" style="width:${Math.min(100, value / maxValue * 100)}%"></span></span><span>${fmtMs(value)}</span></div>`;
-    }).join('') || empty('No per-tool latency samples are available.');
-
-    const samples = latency?.derived?.slowest_samples || [];
-    drawLatencyChart(samples.slice().reverse().map(sample => Number(sample.latency_ms || 0)));
+    const lStats = latency?.derived?.latency_ms || {};
+    const p95 = Number(lStats.p95);
+    $('m-latency').textContent = Number.isFinite(p95) ? p95.toFixed(0) + ' ms' : '--';
+    $('m-latency').className = `stat-value ${p95 > 200 ? 'color-orange' : 'color-blue'}`;
+    $('m-latency-sub').textContent = latency ? `Mean ${fmtMs(Number(lStats.mean))}` : 'No latency artifact';
+    
+    // Reliability
+    const rel = summary.benchmarks?.reliability;
+    const sr = Number(rel?.derived?.success_rate ?? rel?.summary?.success_rate);
+    $('m-reliability').textContent = fmtPct(sr);
+    $('m-reliability').className = `stat-value ${sr < 0.95 ? 'color-yellow' : 'color-green'}`;
+    $('m-reliability-sub').textContent = rel ? rel.headline : 'No reliability artifact';
+    
+    // Safety
+    const saf = summary.benchmarks?.safety;
+    const pr = Number(saf?.derived?.pass_rate);
+    $('m-safety').textContent = fmtPct(pr);
+    $('m-safety').className = `stat-value ${pr < 1.0 ? 'color-red' : 'color-orange'}`;
+    $('m-safety-sub').textContent = saf ? saf.headline : 'No safety artifact';
+    
+    // Runtime
+    const rt = summary.runtime || {};
+    const mode = text(rt.backend_mode, 'UNKNOWN').toUpperCase();
+    $('m-runtime-state').textContent = mode;
+    $('m-runtime-state').className = `stat-value ${mode === 'MOCK' ? 'color-purple' : 'color-green'}`;
+    
+    const airframe = text(rt.airframe?.label, 'Unknown Airframe');
+    $('m-runtime-airframe').textContent = airframe;
+    
+    const flags = rt.readiness?.flags || {};
+    const readyCount = Object.values(flags).filter(Boolean).length;
+    const totalCount = Object.keys(flags).length;
+    $('m-runtime-flags').innerHTML = totalCount > 0 ? 
+      `<span style="color:${readyCount===totalCount?colors.green:colors.yellow}">${readyCount}/${totalCount} Systems Ready</span>` : 
+      'No flag data';
   }
 
-  function drawLatencyChart(values) {
-    const svg = $('latency-chart');
-    const width = svg.clientWidth || 800;
-    const height = svg.clientHeight || 260;
-    const pad = 28;
-    if (!values.length) {
-      svg.innerHTML = `<text x="24" y="44" fill="#9ca997">No latency samples</text>`;
+  function renderAIMetrics(summary) {
+    const ai = summary.events?.assistant_metrics;
+    if (ai && ai.plan_count > 0) {
+      const aiP95 = Number(ai.latency_ms?.p95);
+      $('ai-latency').textContent = Number.isFinite(aiP95) ? aiP95.toFixed(0) + ' ms' : '--';
+      $('ai-latency-sub').textContent = `Mean ${fmtMs(Number(ai.latency_ms?.mean))} (${ai.plan_count} calls)`;
+      
+      const aiSr = Number(ai.success_rate);
+      $('ai-success').textContent = fmtPct(aiSr);
+      $('ai-success').className = `stat-value ${aiSr < 0.95 ? 'color-orange' : 'color-purple'}`;
+      $('ai-success-sub').textContent = `Based on ${ai.plan_count} tracked plans`;
+    }
+  }
+
+  function renderBarGauges(summary) {
+    // Tool Latency
+    const byTool = summary.events?.by_command_latency || summary.by_command_latency || {};
+    const toolEntries = Object.entries(byTool).sort((a,b) => Number(b[1].p95 || 0) - Number(a[1].p95 || 0));
+    
+    if (toolEntries.length > 0) {
+      const maxL = Math.max(...toolEntries.map(e => Number(e[1].p95 || 0)));
+      $('tool-latency-bars').innerHTML = toolEntries.map(([tool, stats]) => {
+        const val = Number(stats.p95 || 0);
+        const pct = Math.min(100, (val / maxL) * 100);
+        const color = val > 150 ? colors.orange : colors.blue;
+        return `
+          <div class="bar-gauge-row">
+            <div class="bar-gauge-label" title="${tool}">${tool}</div>
+            <div class="bar-gauge-track">
+              <div class="bar-gauge-fill" style="width: ${pct}%; background: ${color};"></div>
+            </div>
+            <div class="bar-gauge-value">${val.toFixed(0)}ms</div>
+          </div>
+        `;
+      }).join('');
+    } else {
+      $('tool-latency-bars').innerHTML = `<div style="text-align: center; color: var(--text-muted); font-size: 12px; margin-top: 20px;">No tool latency data.</div>`;
+    }
+
+    // Safety Errors
+    const errors = summary.events?.by_error_code || {};
+    const errEntries = Object.entries(errors).filter(([k]) => k !== 'none').sort((a,b) => b[1] - a[1]);
+    
+    if (errEntries.length > 0) {
+      const maxE = Math.max(...errEntries.map(e => Number(e[1])));
+      $('safety-error-bars').innerHTML = errEntries.slice(0, 5).map(([code, count]) => {
+        const pct = Math.min(100, (count / maxE) * 100);
+        return `
+          <div class="bar-gauge-row">
+            <div class="bar-gauge-label" title="${code}">${code}</div>
+            <div class="bar-gauge-track">
+              <div class="bar-gauge-fill" style="width: ${pct}%; background: ${colors.red};"></div>
+            </div>
+            <div class="bar-gauge-value">${count}</div>
+          </div>
+        `;
+      }).join('');
+    } else {
+      $('safety-error-bars').innerHTML = `<div style="text-align: center; color: var(--text-muted); font-size: 12px; margin-top: 20px;">No rejections recorded.</div>`;
+    }
+  }
+
+  function renderLogs(events) {
+    if (!events || events.length === 0) {
+      $('log-explorer').innerHTML = `<div style="padding: 16px; text-align: center; color: var(--text-muted); font-size: 12px;">No events recorded.</div>`;
       return;
     }
-    const max = Math.max(...values, 1);
-    const points = values.map((value, index) => {
-      const x = pad + (values.length === 1 ? 0 : index * (width - pad * 2) / (values.length - 1));
-      const y = height - pad - (value / max) * (height - pad * 2);
-      return `${x},${y}`;
-    }).join(' ');
-    const circles = values.map((value, index) => {
-      const x = pad + (values.length === 1 ? 0 : index * (width - pad * 2) / (values.length - 1));
-      const y = height - pad - (value / max) * (height - pad * 2);
-      return `<circle cx="${x}" cy="${y}" r="4" fill="#d7ff4f"><title>${fmtMs(value)}</title></circle>`;
+    
+    $('log-explorer').innerHTML = events.map(e => {
+      const isSuccess = e.success !== false;
+      const level = isSuccess ? 'info' : 'error';
+      const levelText = isSuccess ? 'INFO' : 'ERR';
+      const time = e.timestamp ? new Date(e.timestamp).toLocaleTimeString([], {hour12:false}) : '--:--:--';
+      
+      return `
+        <div class="log-row">
+          <div class="log-time">${time}</div>
+          <div class="log-level ${level}">${levelText}</div>
+          <div class="log-cmd" title="${text(e.command, e.action)}">${text(e.command, e.action)}</div>
+          <div class="log-msg" title="${text(e.message)}">${text(e.message)}</div>
+          <div class="log-dur">${Number.isFinite(e.duration_ms) ? e.duration_ms.toFixed(0)+'ms' : ''}</div>
+        </div>
+      `;
     }).join('');
-    svg.innerHTML = `
-      <line x1="${pad}" y1="${height-pad}" x2="${width-pad}" y2="${height-pad}" stroke="rgba(236,230,207,0.18)" />
-      <line x1="${pad}" y1="${pad}" x2="${pad}" y2="${height-pad}" stroke="rgba(236,230,207,0.18)" />
-      <polyline fill="none" stroke="#d7ff4f" stroke-width="3" points="${points}" />
-      ${circles}
-      <text x="${pad}" y="${pad - 8}" fill="#9ca997">${fmtMs(max)}</text>
-    `;
-  }
-
-  function renderReliability(summary) {
-    const reliability = summary.benchmarks?.reliability;
-    const successRate = Number(reliability?.derived?.success_rate ?? reliability?.summary?.success_rate);
-    $('m-reliability').textContent = fmtPct(successRate);
-    $('m-reliability-sub').textContent = reliability ? reliability.headline : 'No reliability benchmark artifact found.';
-  }
-
-  function renderSafety(summary) {
-    const safety = summary.benchmarks?.safety;
-    const passRate = Number(safety?.derived?.pass_rate);
-    $('m-safety').textContent = fmtPct(passRate);
-    $('m-safety-sub').textContent = safety ? safety.headline : 'No safety benchmark artifact found.';
-    $('safety-headline').textContent = safety?.headline || 'No safety run';
-    const scenarios = safety?.derived?.by_scenario || {};
-    $('safety-scenarios').innerHTML = Object.entries(scenarios).map(([name, item]) => {
-      const cls = item.passed ? 'ok' : 'err';
-      return `<span class="pill ${cls}"><span class="dot"></span><span>${name}: ${text(item.error_code)}</span></span>`;
-    }).join('') || empty('No safety scenarios are available.');
-  }
-
-  function renderEvents(summary, events) {
-    const eventSummary = summary.events || {};
-    $('m-rejections').textContent = text(eventSummary.safety_rejection_count, '0');
-    $('m-rejections-sub').textContent = `${text(eventSummary.command_count, '0')} commands recorded in the live event store.`;
-    $('event-store').textContent = `${text(eventSummary.event_count, '0')} events`;
-    $('event-count').textContent = `${events.length} shown`;
-
-    const errors = eventSummary.by_error_code || {};
-    const maxError = Math.max(1, ...Object.values(errors).map(Number));
-    $('error-bars').innerHTML = Object.entries(errors).filter(([key]) => key !== 'none').map(([key, value]) => {
-      return `<div class="bar-row"><span>${key}</span><span class="bar-track"><span class="bar-fill" style="width:${Number(value)/maxError*100}%"></span></span><span>${value}</span></div>`;
-    }).join('') || empty('No live safety rejections recorded.');
-
-    $('events-list').innerHTML = events.map(event => {
-      const cls = event.success === false ? 'err' : 'ok';
-      return `<div class="event"><span class="mono">${text(event.timestamp)}</span><span class="pill ${cls}"><span class="dot"></span><span>${text(event.command, event.action)}</span></span><span class="message">${text(event.message)}</span><span class="mono">${fmtMs(Number(event.duration_ms))}</span></div>`;
-    }).join('') || empty('No live command trace events have been recorded yet.');
   }
 
   function renderRuns(runs) {
     $('run-count').textContent = `${runs.length} runs`;
+    
+    if (runs.length === 0) {
+      $('runs-table').innerHTML = `<tr><td colspan="5" style="text-align: center; color: var(--text-muted);">No benchmark artifacts found.</td></tr>`;
+      return;
+    }
+    
     $('runs-table').innerHTML = runs.map(run => {
-      const result = run.passed === true ? 'pass' : run.passed === false ? 'fail' : 'n/a';
-      return `<tr><td class="mono">${text(run.timestamp)}</td><td>${text(run.benchmark)}</td><td>${text(run.headline)}</td><td class="mono">${text(run.record_count, '0')}</td><td>${result}</td></tr>`;
-    }).join('') || `<tr><td colspan="5">${empty('No benchmark artifacts found under evaluation/results.')}</td></tr>`;
+      const result = run.passed === true ? `<span style="color:${colors.green}">PASS</span>` : 
+                     run.passed === false ? `<span style="color:${colors.red}">FAIL</span>` : 
+                     `<span style="color:${colors.text}">N/A</span>`;
+      const time = run.timestamp ? new Date(run.timestamp).toLocaleString() : '--';
+      
+      return `
+        <tr>
+          <td class="font-mono">${time}</td>
+          <td>${text(run.benchmark)}</td>
+          <td>${text(run.headline)}</td>
+          <td class="font-mono">${text(run.record_count, '0')}</td>
+          <td>${result}</td>
+        </tr>
+      `;
+    }).join('');
   }
 
-  function renderRuntime(summary) {
-    const runtime = summary.runtime || {};
-    const airframe = runtime.airframe?.label || runtime.backend_mode || '--';
-    const world = runtime.world?.label || '--';
-    const stack = runtime.stack?.status || '--';
-    $('runtime-profile').textContent = `${airframe} / ${world}`;
-    $('runtime-stack').innerHTML = [
-      miniRow('Backend', text(runtime.backend_mode)),
-      miniRow('Airframe', text(airframe)),
-      miniRow('World', text(world)),
-      miniRow('Stack', text(stack)),
-      miniRow('Telemetry', text(runtime.telemetry?.state))
-    ].join('');
-
-    const flags = runtime.readiness?.flags || {};
-    $('runtime-flags').innerHTML = Object.entries(flags).map(([name, value]) => {
-      return `<span class="pill ${value ? 'ok' : 'warn'}"><span class="dot"></span><span>${name}: ${value ? 'ready' : 'pending'}</span></span>`;
-    }).join('') || empty('Runtime readiness flags are unavailable.');
+  // --- Data Fetching and Update Cycle ---
+  let lastEventCount = 0;
+  
+  async function updateData() {
+    try {
+      const [summaryReq, runsReq, eventsReq] = await Promise.all([
+        fetch('/dashboard/api/observability/summary', { headers: { 'Accept': 'application/json' } }),
+        fetch('/dashboard/api/observability/runs', { headers: { 'Accept': 'application/json' } }),
+        fetch('/dashboard/api/observability/events?limit=50', { headers: { 'Accept': 'application/json' } })
+      ]);
+      
+      if (!summaryReq.ok) throw new Error('API Error');
+      
+      const summary = await summaryReq.json();
+      const runsData = await runsReq.json();
+      const eventsData = await eventsReq.json();
+      
+      // Update Readiness Pill
+      const ready = Boolean(summary.readiness?.ready_for_thesis);
+      setPill($('ready-pill'), ready, ready ? 'Thesis Ready' : 'Incomplete Evidence');
+      
+      // Render Static Panels
+      renderKPIs(summary);
+      renderAIMetrics(summary);
+      renderBarGauges(summary);
+      renderLogs(eventsData.events || []);
+      renderRuns(runsData.runs || []);
+      
+      // Update Time-Series History
+      if (summary.events?.timeseries) {
+        const ts = summary.events.timeseries;
+        history.timestamps = ts.timestamps.map(iso => {
+          const d = new Date(iso);
+          return d.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', second:'2-digit', hour12:false});
+        });
+        history.latencyP95 = ts.latencyP95;
+        history.latencyMean = ts.latencyMean;
+        history.throughputSuccess = ts.throughputSuccess;
+        history.throughputError = ts.throughputError;
+      }
+      
+      // Update Charts
+      if (latencyChart && throughputChart) {
+        latencyChart.data.labels = history.timestamps.slice(-currentDisplayPoints);
+        latencyChart.data.datasets[0].data = history.latencyP95.slice(-currentDisplayPoints);
+        latencyChart.data.datasets[1].data = history.latencyMean.slice(-currentDisplayPoints);
+        latencyChart.update('none');
+        
+        throughputChart.data.labels = history.timestamps.slice(-currentDisplayPoints);
+        throughputChart.data.datasets[0].data = history.throughputSuccess.slice(-currentDisplayPoints);
+        throughputChart.data.datasets[1].data = history.throughputError.slice(-currentDisplayPoints);
+        throughputChart.update('none');
+      }
+      
+    } catch (e) {
+      console.error("Dashboard update failed:", e);
+      setPill($('ready-pill'), false, 'API Offline');
+    }
   }
 
-  async function refresh() {
-    $('summary-note').textContent = 'Loading observability data...';
-    const [summary, runsPayload, eventsPayload] = await Promise.all([
-      fetchJson(api.summary),
-      fetchJson(api.runs),
-      fetchJson(api.events)
-    ]);
-    const ready = Boolean(summary.readiness?.ready_for_thesis);
-    setPill($('ready-pill'), ready, ready ? 'Thesis evidence ready' : 'Evidence incomplete');
-    $('latest-run').textContent = summary.latest_run ? `${summary.latest_run.benchmark} ${summary.latest_run.timestamp || ''}` : 'No artifact';
-    $('summary-note').textContent = ready
-      ? 'Latest latency, reliability, and safety artifacts are present and pass/fail suites are green.'
-      : 'Collect or rerun benchmark artifacts before using this as final thesis evidence.';
-    renderLatency(summary);
-    renderReliability(summary);
-    renderSafety(summary);
-    renderEvents(summary, eventsPayload.events || []);
-    renderRuns(runsPayload.runs || []);
-    renderRuntime(summary);
+  // --- Interval & Controls ---
+  let fetchIntervalId = null;
+  function setRefreshInterval(ms) {
+    if (fetchIntervalId) clearInterval(fetchIntervalId);
+    if (ms > 0) {
+      fetchIntervalId = setInterval(updateData, ms);
+    }
   }
+  
+  $('refresh-rate').addEventListener('change', (e) => {
+    setRefreshInterval(Number(e.target.value));
+  });
+  
+  $('time-window').addEventListener('change', (e) => {
+    currentDisplayPoints = Number(e.target.value);
+    updateData();
+  });
 
-  $('refresh').addEventListener('click', () => refresh().catch(showError));
-  function showError(error) {
-    $('summary-note').textContent = `Observability API error: ${error.message}`;
-    setPill($('ready-pill'), false, 'API error');
-  }
-  refresh().catch(showError);
-  setInterval(() => refresh().catch(showError), 10000);
+  // --- Boot ---
+  initCharts();
+  updateData();
+  
+  $('refresh').addEventListener('click', updateData);
+  setRefreshInterval(2000);
+  
 })();
 </script>
 </body>
