@@ -3,6 +3,10 @@ from __future__ import annotations
 import csv
 import contextlib
 import json
+import os
+import platform
+import subprocess
+import sys
 import time
 from collections.abc import Callable, Sequence
 from contextlib import AbstractAsyncContextManager, AsyncExitStack
@@ -232,6 +236,67 @@ def benchmark_run_dir(name: str, *, output_dir: Path | None = None) -> Path:
     return run_dir
 
 
+def _repo_root() -> Path:
+    return Path(__file__).resolve().parents[1]
+
+
+def _git_value(*args: str) -> str | None:
+    try:
+        completed = subprocess.run(
+            ["git", *args],
+            cwd=_repo_root(),
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=3.0,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    value = completed.stdout.strip()
+    return value or None
+
+
+def _git_dirty() -> bool | None:
+    try:
+        completed = subprocess.run(
+            ["git", "status", "--short"],
+            cwd=_repo_root(),
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=3.0,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return bool(completed.stdout.strip())
+
+
+def benchmark_metadata(name: str) -> JsonDict:
+    """Capture enough context to interpret a benchmark run later."""
+    return {
+        "benchmark": name,
+        "generated_at": datetime.now(tz=UTC).isoformat(timespec="seconds"),
+        "python": {
+            "version": sys.version.split()[0],
+            "executable": sys.executable,
+            "platform": platform.platform(),
+        },
+        "git": {
+            "commit": _git_value("rev-parse", "HEAD"),
+            "branch": _git_value("branch", "--show-current"),
+            "dirty": _git_dirty(),
+        },
+        "environment": {
+            "backend_mode": os.getenv("BACKEND_MODE"),
+            "px4_model": os.getenv("PX4_MODEL"),
+            "px4_connection_string": os.getenv("PX4_CONNECTION_STRING"),
+            "geofence_radius_m": os.getenv("GEOFENCE_RADIUS_M"),
+            "default_takeoff_altitude_m": os.getenv("DEFAULT_TAKEOFF_ALTITUDE_M"),
+            "camera_enabled": os.getenv("CAMERA_ENABLED"),
+        },
+    }
+
+
 def write_benchmark_artifacts(
     name: str,
     records: Sequence[JsonDict],
@@ -244,7 +309,15 @@ def write_benchmark_artifacts(
     csv_path = run_dir / "results.csv"
 
     json_path.write_text(
-        json.dumps({"summary": summary, "records": list(records)}, indent=2, sort_keys=True),
+        json.dumps(
+            {
+                "metadata": benchmark_metadata(name),
+                "summary": summary,
+                "records": list(records),
+            },
+            indent=2,
+            sort_keys=True,
+        ),
         encoding="utf-8",
     )
 

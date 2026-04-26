@@ -15,7 +15,7 @@ def _write_results(tmp_path, name: str, timestamp: str, summary: dict, records: 
     run_dir = tmp_path / "evaluation" / "results" / f"{name}-{timestamp}"
     run_dir.mkdir(parents=True)
     (run_dir / "results.json").write_text(
-        json.dumps({"summary": summary, "records": records}),
+        json.dumps({"metadata": {"git": {"commit": "abc123"}}, "summary": summary, "records": records}),
         encoding="utf-8",
     )
     (run_dir / "results.csv").write_text("ok\n", encoding="utf-8")
@@ -90,6 +90,7 @@ def test_observability_service_summarizes_benchmark_artifacts(tmp_path) -> None:
 
     assert summary["readiness"]["complete_suite"] is True
     assert summary["readiness"]["ready_for_thesis"] is True
+    assert summary["benchmarks"]["latency"]["metadata"]["git"]["commit"] == "abc123"
     assert summary["benchmarks"]["latency"]["derived"]["by_tool"]["arm"]["p50"] == 500.0
     assert summary["benchmarks"]["safety"]["derived"]["pass_rate"] == 1.0
 
