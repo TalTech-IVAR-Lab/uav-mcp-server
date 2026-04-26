@@ -1,0 +1,523 @@
+"""Observability data model for thesis-facing analysis.
+
+The module intentionally stays dependency-free. It reads reproducible
+benchmark artifacts from ``evaluation/results`` and records live operational
+events into a small SQLite database under ``.run``.
+"""
+
+from __future__ import annotations
+
+import csv
+import json
+import sqlite3
+import uuid
+from collections import Counter, defaultdict
+from collections.abc import Iterable
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+from statistics import mean
+from typing import Any
+
+UTC = timezone.utc
+BENCHMARK_NAMES = ("latency", "reliability", "safety")
+OBSERVABILITY_DB_NAME = "observability.sqlite3"
+
+
+def now_iso() -> str:
+    return datetime.now(tz=UTC).isoformat(timespec="milliseconds")
+
+
+def percentile(values: Iterable[float], percentile_value: float) -> float | None:
+    ordered = sorted(float(value) for value in values)
+    if not ordered:
+        return None
+    if len(ordered) == 1:
+        return round(ordered[0], 3)
+
+    rank = (len(ordered) - 1) * percentile_value / 100.0
+    lower = int(rank)
+    upper = min(lower + 1, len(ordered) - 1)
+    weight = rank - lower
+    return round(ordered[lower] * (1.0 - weight) + ordered[upper] * weight, 3)
+
+
+def _parse_run_timestamp(run_name: str, path: Path) -> str | None:
+    raw_value = run_name.rsplit("-", 1)[-1]
+    try:
+        return datetime.strptime(raw_value, "%Y%m%dT%H%M%SZ").replace(tzinfo=UTC).isoformat(timespec="seconds")
+    except ValueError:
+        if path.exists():
+            return datetime.fromtimestamp(path.stat().st_mtime, tz=UTC).isoformat(timespec="seconds")
+        return None
+
+
+def _safe_float(value: Any) -> float | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    return None
+
+
+def _json_or_none(value: Any) -> str | None:
+    if value is None:
+        return None
+    return json.dumps(value, sort_keys=True)
+
+
+def _load_json(path: Path) -> dict[str, Any]:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError("artifact root must be a JSON object")
+    return payload
+
+
+@dataclass(slots=True)
+class ObservabilityEvent:
+    timestamp: str
+    source: str
+    action: str
+    command: str | None = None
+    success: bool | None = None
+    error_code: str | None = None
+    duration_ms: float | None = None
+    message: str | None = None
+    request: dict[str, Any] | None = None
+    response: dict[str, Any] | None = None
+    telemetry_before: dict[str, Any] | None = None
+    telemetry_after: dict[str, Any] | None = None
+    correlation_id: str | None = None
+
+    def to_record(self) -> dict[str, Any]:
+        return {
+            "timestamp": self.timestamp,
+            "source": self.source,
+            "action": self.action,
+            "command": self.command,
+            "success": self.success,
+            "error_code": self.error_code,
+            "duration_ms": self.duration_ms,
+            "message": self.message,
+            "request": self.request,
+            "response": self.response,
+            "telemetry_before": self.telemetry_before,
+            "telemetry_after": self.telemetry_after,
+            "correlation_id": self.correlation_id,
+        }
+
+
+class ObservabilityStore:
+    """SQLite-backed event store for runtime observability."""
+
+    def __init__(self, db_path: Path) -> None:
+        self.db_path = db_path
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        self._initialize()
+
+    def _connect(self) -> sqlite3.Connection:
+        connection = sqlite3.connect(self.db_path)
+        connection.row_factory = sqlite3.Row
+        return connection
+
+    def _initialize(self) -> None:
+        with self._connect() as connection:
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS observability_events (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp TEXT NOT NULL,
+                    source TEXT NOT NULL,
+                    action TEXT NOT NULL,
+                    command TEXT,
+                    success INTEGER,
+                    error_code TEXT,
+                    duration_ms REAL,
+                    message TEXT,
+                    request_json TEXT,
+                    response_json TEXT,
+                    telemetry_before_json TEXT,
+                    telemetry_after_json TEXT,
+                    correlation_id TEXT NOT NULL
+                )
+                """
+            )
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_observability_events_timestamp "
+                "ON observability_events(timestamp DESC)"
+            )
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_observability_events_command "
+                "ON observability_events(command)"
+            )
+
+    def record(self, event: ObservabilityEvent) -> str:
+        correlation_id = event.correlation_id or str(uuid.uuid4())
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO observability_events (
+                    timestamp, source, action, command, success, error_code, duration_ms,
+                    message, request_json, response_json, telemetry_before_json,
+                    telemetry_after_json, correlation_id
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    event.timestamp,
+                    event.source,
+                    event.action,
+                    event.command,
+                    None if event.success is None else int(event.success),
+                    event.error_code,
+                    event.duration_ms,
+                    event.message,
+                    _json_or_none(event.request),
+                    _json_or_none(event.response),
+                    _json_or_none(event.telemetry_before),
+                    _json_or_none(event.telemetry_after),
+                    correlation_id,
+                ),
+            )
+        return correlation_id
+
+    def recent(self, *, limit: int = 200) -> list[dict[str, Any]]:
+        bounded_limit = max(1, min(int(limit), 1000))
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT * FROM observability_events
+                ORDER BY timestamp DESC, id DESC
+                LIMIT ?
+                """,
+                (bounded_limit,),
+            ).fetchall()
+        return [self._row_to_dict(row) for row in rows]
+
+    def summary(self) -> dict[str, Any]:
+        with self._connect() as connection:
+            rows = connection.execute("SELECT * FROM observability_events").fetchall()
+
+        events = [self._row_to_dict(row) for row in rows]
+        by_command = Counter(str(event.get("command") or "unknown") for event in events)
+        by_error = Counter(str(event.get("error_code") or "none") for event in events)
+        safety_rejections = [
+            event
+            for event in events
+            if event.get("success") is False and event.get("error_code") not in {None, "none"}
+        ]
+        latencies = [
+            float(event["duration_ms"])
+            for event in events
+            if isinstance(event.get("duration_ms"), (int, float))
+        ]
+        return {
+            "event_count": len(events),
+            "command_count": sum(1 for event in events if event.get("command")),
+            "safety_rejection_count": len(safety_rejections),
+            "by_command": dict(by_command),
+            "by_error_code": dict(by_error),
+            "latency_ms": latency_stats(latencies),
+            "latest_event": events[-1] if events else None,
+        }
+
+    def _row_to_dict(self, row: sqlite3.Row) -> dict[str, Any]:
+        def parse_json(field_name: str) -> Any:
+            raw_value = row[field_name]
+            if raw_value is None:
+                return None
+            try:
+                return json.loads(raw_value)
+            except json.JSONDecodeError:
+                return None
+
+        return {
+            "id": row["id"],
+            "timestamp": row["timestamp"],
+            "source": row["source"],
+            "action": row["action"],
+            "command": row["command"],
+            "success": None if row["success"] is None else bool(row["success"]),
+            "error_code": row["error_code"],
+            "duration_ms": row["duration_ms"],
+            "message": row["message"],
+            "request": parse_json("request_json"),
+            "response": parse_json("response_json"),
+            "telemetry_before": parse_json("telemetry_before_json"),
+            "telemetry_after": parse_json("telemetry_after_json"),
+            "correlation_id": row["correlation_id"],
+        }
+
+
+def latency_stats(values: Iterable[float]) -> dict[str, float | int | None]:
+    numeric = [float(value) for value in values]
+    return {
+        "count": len(numeric),
+        "min": round(min(numeric), 3) if numeric else None,
+        "mean": round(mean(numeric), 3) if numeric else None,
+        "p50": percentile(numeric, 50),
+        "p95": percentile(numeric, 95),
+        "p99": percentile(numeric, 99),
+        "max": round(max(numeric), 3) if numeric else None,
+    }
+
+
+class ObservabilityService:
+    """Read benchmark artifacts and combine them with runtime observations."""
+
+    def __init__(self, repo_root: Path, *, store: ObservabilityStore | None = None) -> None:
+        self.repo_root = repo_root
+        self.results_dir = repo_root / "evaluation" / "results"
+        self.store = store or ObservabilityStore(repo_root / ".run" / OBSERVABILITY_DB_NAME)
+
+    def record_event(self, event: ObservabilityEvent) -> str:
+        return self.store.record(event)
+
+    def list_runs(self) -> dict[str, Any]:
+        runs, errors = self._load_runs()
+        return {
+            "results_dir": str(self.results_dir),
+            "results_dir_exists": self.results_dir.exists(),
+            "run_count": len(runs),
+            "runs": runs,
+            "load_errors": errors,
+        }
+
+    def run_detail(self, run_id: str) -> dict[str, Any]:
+        run_name = Path(run_id).name
+        if run_name != run_id or not run_name:
+            raise ValueError("Invalid run id.")
+        json_path = self.results_dir / run_name / "results.json"
+        if not json_path.exists():
+            raise FileNotFoundError(run_id)
+
+        payload = _load_json(json_path)
+        summary = payload.get("summary") if isinstance(payload.get("summary"), dict) else {}
+        records = payload.get("records") if isinstance(payload.get("records"), list) else []
+        return {
+            "run_id": run_name,
+            "json_path": str(json_path),
+            "csv_path": str(json_path.with_name("results.csv")),
+            "timestamp": _parse_run_timestamp(run_name, json_path),
+            "benchmark": str(summary.get("benchmark") or run_name.split("-", 1)[0]).lower(),
+            "summary": summary,
+            "records": records,
+            "derived": derive_benchmark_metrics(str(summary.get("benchmark") or ""), records, summary),
+        }
+
+    def recent_events(self, *, limit: int = 200) -> list[dict[str, Any]]:
+        return self.store.recent(limit=limit)
+
+    def summary(self, *, runtime_health: dict[str, Any] | None = None) -> dict[str, Any]:
+        runs, errors = self._load_runs()
+        latest_by_benchmark: dict[str, dict[str, Any]] = {}
+        for run in runs:
+            benchmark = str(run.get("benchmark") or "").lower()
+            current = latest_by_benchmark.get(benchmark)
+            if current is None or str(run.get("timestamp") or "") > str(current.get("timestamp") or ""):
+                latest_by_benchmark[benchmark] = run
+
+        benchmark_status = {name: latest_by_benchmark.get(name) for name in BENCHMARK_NAMES}
+        complete_suite = all(benchmark_status[name] is not None for name in BENCHMARK_NAMES)
+        reliability_passed = (benchmark_status.get("reliability") or {}).get("passed")
+        safety_passed = (benchmark_status.get("safety") or {}).get("passed")
+        ready_for_thesis = complete_suite and reliability_passed is True and safety_passed is True
+        return {
+            "timestamp": now_iso(),
+            "results_dir": str(self.results_dir),
+            "run_count": len(runs),
+            "benchmarks": benchmark_status,
+            "latest_run": runs[0] if runs else None,
+            "readiness": {
+                "complete_suite": complete_suite,
+                "ready_for_thesis": ready_for_thesis,
+                "has_latency": benchmark_status["latency"] is not None,
+                "has_reliability": benchmark_status["reliability"] is not None,
+                "has_safety": benchmark_status["safety"] is not None,
+                "reliability_passed": reliability_passed,
+                "safety_passed": safety_passed,
+            },
+            "runtime": runtime_health or {},
+            "events": self.store.summary(),
+            "load_errors": errors,
+        }
+
+    def export(self) -> dict[str, Any]:
+        runs, errors = self._load_runs()
+        return {
+            "generated_at": now_iso(),
+            "summary": self.summary(),
+            "runs": runs,
+            "events": self.store.recent(limit=1000),
+            "load_errors": errors,
+        }
+
+    def _load_runs(self) -> tuple[list[dict[str, Any]], list[dict[str, str]]]:
+        runs: list[dict[str, Any]] = []
+        errors: list[dict[str, str]] = []
+        if not self.results_dir.exists():
+            return runs, errors
+
+        for json_path in sorted(self.results_dir.glob("*/results.json")):
+            try:
+                payload = _load_json(json_path)
+                run = summarize_artifact(json_path, payload)
+            except (OSError, ValueError, json.JSONDecodeError) as exc:
+                errors.append({"path": str(json_path), "message": str(exc)})
+                continue
+            runs.append(run)
+
+        runs.sort(key=lambda entry: str(entry.get("timestamp") or ""), reverse=True)
+        return runs, errors
+
+
+def summarize_artifact(json_path: Path, payload: dict[str, Any]) -> dict[str, Any]:
+    summary = payload.get("summary")
+    if not isinstance(summary, dict):
+        raise ValueError("results.json is missing a summary object")
+
+    records = payload.get("records")
+    if not isinstance(records, list):
+        records = []
+
+    run_id = json_path.parent.name
+    benchmark = str(summary.get("benchmark") or run_id.split("-", 1)[0]).lower()
+    derived = derive_benchmark_metrics(benchmark, records, summary)
+    return {
+        "run_id": run_id,
+        "benchmark": benchmark,
+        "timestamp": _parse_run_timestamp(run_id, json_path),
+        "json_path": str(json_path),
+        "csv_path": str(json_path.parent / "results.csv"),
+        "record_count": len(records),
+        "summary": summary,
+        "passed": summary.get("passed") if isinstance(summary.get("passed"), bool) else None,
+        "headline": benchmark_headline(benchmark, summary, derived, record_count=len(records)),
+        "derived": derived,
+    }
+
+
+def derive_benchmark_metrics(
+    benchmark: str,
+    records: list[Any],
+    summary: dict[str, Any],
+) -> dict[str, Any]:
+    if benchmark == "latency":
+        return derive_latency_metrics(records)
+    if benchmark == "reliability":
+        return derive_reliability_metrics(records, summary)
+    if benchmark == "safety":
+        return derive_safety_metrics(records, summary)
+    return {"record_count": len(records)}
+
+
+def derive_latency_metrics(records: list[Any]) -> dict[str, Any]:
+    by_tool: dict[str, list[float]] = defaultdict(list)
+    all_latencies: list[float] = []
+    for record in records:
+        if not isinstance(record, dict):
+            continue
+        latency_ms = _safe_float(record.get("latency_ms"))
+        tool = str(record.get("tool") or "unknown")
+        if latency_ms is None:
+            continue
+        by_tool[tool].append(latency_ms)
+        all_latencies.append(latency_ms)
+
+    return {
+        "latency_ms": latency_stats(all_latencies),
+        "by_tool": {tool: latency_stats(values) for tool, values in sorted(by_tool.items())},
+        "slowest_samples": sorted(
+            [record for record in records if isinstance(record, dict) and _safe_float(record.get("latency_ms")) is not None],
+            key=lambda record: float(record["latency_ms"]),
+            reverse=True,
+        )[:10],
+    }
+
+
+def derive_reliability_metrics(records: list[Any], summary: dict[str, Any]) -> dict[str, Any]:
+    durations = [
+        value
+        for record in records
+        if isinstance(record, dict)
+        for value in [_safe_float(record.get("duration_s"))]
+        if value is not None
+    ]
+    failures = [record for record in records if isinstance(record, dict) and record.get("success") is False]
+    return {
+        "success_rate": _safe_float(summary.get("success_rate")),
+        "duration_s": latency_stats(durations),
+        "failure_count": len(failures),
+        "failures": failures[:10],
+    }
+
+
+def derive_safety_metrics(records: list[Any], summary: dict[str, Any]) -> dict[str, Any]:
+    by_error = Counter(
+        str(record.get("error_code") or "none")
+        for record in records
+        if isinstance(record, dict)
+    )
+    by_scenario = {
+        str(record.get("scenario") or "unknown"): {
+            "passed": record.get("passed"),
+            "error_code": record.get("error_code"),
+            "expected_error_code": record.get("expected_error_code"),
+            "message": record.get("message"),
+        }
+        for record in records
+        if isinstance(record, dict)
+    }
+    scenario_count = summary.get("scenario_count")
+    passed_scenarios = summary.get("passed_scenarios")
+    pass_rate = None
+    if isinstance(scenario_count, int) and scenario_count > 0 and isinstance(passed_scenarios, int):
+        pass_rate = round(passed_scenarios / scenario_count, 3)
+    return {
+        "pass_rate": pass_rate,
+        "by_error_code": dict(by_error),
+        "by_scenario": by_scenario,
+    }
+
+
+def benchmark_headline(
+    benchmark: str,
+    summary: dict[str, Any],
+    derived: dict[str, Any],
+    *,
+    record_count: int,
+) -> str:
+    if benchmark == "latency":
+        latency = derived.get("latency_ms", {})
+        mean_ms = latency.get("mean") if isinstance(latency, dict) else summary.get("mean_latency_ms")
+        p95_ms = latency.get("p95") if isinstance(latency, dict) else None
+        if isinstance(mean_ms, (int, float)) and isinstance(p95_ms, (int, float)):
+            return f"{mean_ms:.1f} ms mean | {p95_ms:.1f} ms p95"
+    if benchmark == "reliability":
+        successful = summary.get("successful_iterations")
+        iterations = summary.get("iterations")
+        success_rate = summary.get("success_rate")
+        if isinstance(successful, int) and isinstance(iterations, int):
+            if isinstance(success_rate, (int, float)):
+                return f"{successful}/{iterations} passes | {success_rate * 100:.0f}% success"
+            return f"{successful}/{iterations} passes"
+    if benchmark == "safety":
+        passed = summary.get("passed_scenarios")
+        scenarios = summary.get("scenario_count")
+        if isinstance(passed, int) and isinstance(scenarios, int):
+            return f"{passed}/{scenarios} checks passed"
+    return f"{record_count} records captured" if record_count else "Summary available"
+
+
+def write_csv_export(path: Path, rows: list[dict[str, Any]]) -> None:
+    field_names: list[str] = []
+    seen_fields: set[str] = set()
+    for row in rows:
+        for key in row:
+            if key not in seen_fields:
+                field_names.append(key)
+                seen_fields.add(key)
+    with path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=field_names or ["record"])
+        writer.writeheader()
+        writer.writerows(rows)
