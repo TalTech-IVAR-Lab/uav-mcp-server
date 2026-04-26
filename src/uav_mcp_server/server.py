@@ -38,6 +38,7 @@ from uav_mcp_server.drone import DroneController, DroneBackend, MavsdkBackend
 from uav_mcp_server.local_backend import LocalSimulationBackend
 from uav_mcp_server.navigation import coordinate_offset_m
 from uav_mcp_server.navigation import haversine_distance_m
+from uav_mcp_server.observability import ObservabilityEvent, ObservabilityService, now_iso
 from uav_mcp_server.projection import CameraParams, DronePose, pixel_to_world
 from uav_mcp_server.safety import SafetyValidator
 from uav_mcp_server.telemetry import TelemetryManager
@@ -359,6 +360,7 @@ def create_server(
     assistant = DashboardAssistant(resolved_services.settings)
     manual_window: deque[float] = deque()
     repo_root = _server_repo_root()
+    observability = ObservabilityService(repo_root)
     local_backend_active = isinstance(getattr(resolved_services.controller, "_backend", None), LocalSimulationBackend)
     gimbal_state: dict[str, Any]
     if not resolved_services.settings.manual_control_supports_gimbal_pitch:
@@ -619,6 +621,86 @@ def create_server(
         manual_window.append(now)
         return None
 
+    def _record_observability_event(
+        *,
+        source: str,
+        action: str,
+        command_name: str | None,
+        params: dict[str, Any] | None,
+        started_at: float,
+        result: CommandResult | TelemetrySnapshot | dict[str, Any],
+        telemetry_before: TelemetrySnapshot,
+    ) -> None:
+        duration_ms = round((monotonic() - started_at) * 1000.0, 3)
+        telemetry_after = current_snapshot()
+        if isinstance(result, CommandResult):
+            success = result.success
+            error_code = result.error_code.value if result.error_code is not None else None
+            message = result.message
+            response: dict[str, Any] | None = result.model_dump(mode="json")
+        elif isinstance(result, TelemetrySnapshot):
+            success = True
+            error_code = None
+            message = "Telemetry retrieved."
+            response = result.model_dump(mode="json")
+        else:
+            success = True
+            error_code = None
+            message = None
+            response = result
+
+        observability.record_event(
+            ObservabilityEvent(
+                timestamp=now_iso(),
+                source=source,
+                action=action,
+                command=command_name,
+                success=success,
+                error_code=error_code,
+                duration_ms=duration_ms,
+                message=message,
+                request=params or {},
+                response=response,
+                telemetry_before=telemetry_before.model_dump(mode="json"),
+                telemetry_after=telemetry_after.model_dump(mode="json"),
+            )
+        )
+
+    async def _observed_command(
+        command_name: str,
+        params: dict[str, Any],
+        runner: Any,
+        *,
+        source: str = "mcp",
+        validate_params: dict[str, Any] | None = None,
+    ) -> CommandResult:
+        started_at = monotonic()
+        telemetry_before = current_snapshot()
+        violation = validate(command_name, **(validate_params if validate_params is not None else params))
+        if violation is not None:
+            _record_observability_event(
+                source=source,
+                action="command",
+                command_name=command_name,
+                params=params,
+                started_at=started_at,
+                result=violation,
+                telemetry_before=telemetry_before,
+            )
+            return violation
+
+        result = await runner()
+        _record_observability_event(
+            source=source,
+            action="command",
+            command_name=command_name,
+            params=params,
+            started_at=started_at,
+            result=result,
+            telemetry_before=telemetry_before,
+        )
+        return result
+
     async def _command_manifest() -> list[dict[str, Any]]:
         return build_command_manifest(await mcp.list_tools())
 
@@ -652,10 +734,11 @@ def create_server(
         annotations=ToolAnnotations(title="Connect"),
     )
     async def connect(connection_string: str | None = None) -> CommandResult:
-        violation = validate("connect")
-        if violation is not None:
-            return violation
-        return await resolved_services.controller.connect(connection_string)
+        return await _observed_command(
+            "connect",
+            {"connection_string": connection_string},
+            lambda: resolved_services.controller.connect(connection_string),
+        )
 
     @mcp.tool(
         title="Guided Takeoff",
@@ -669,16 +752,13 @@ def create_server(
         altitude_m: float = resolved_services.settings.default_takeoff_altitude_m,
         connection_string: str | None = None,
     ) -> CommandResult:
-        violation = validate(
+        return await _observed_command(
             "guided_takeoff",
-            altitude_m=altitude_m,
-            connection_string=connection_string,
-        )
-        if violation is not None:
-            return violation
-        return await resolved_services.controller.guided_takeoff(
-            altitude_m=altitude_m,
-            connection_string=connection_string,
+            {"altitude_m": altitude_m, "connection_string": connection_string},
+            lambda: resolved_services.controller.guided_takeoff(
+                altitude_m=altitude_m,
+                connection_string=connection_string,
+            ),
         )
 
     @mcp.tool(
@@ -687,10 +767,7 @@ def create_server(
         annotations=ToolAnnotations(title="Arm", destructiveHint=True),
     )
     async def arm() -> CommandResult:
-        violation = validate("arm")
-        if violation is not None:
-            return violation
-        return await resolved_services.controller.arm()
+        return await _observed_command("arm", {}, resolved_services.controller.arm)
 
     @mcp.tool(
         title="Disarm",
@@ -698,10 +775,7 @@ def create_server(
         annotations=ToolAnnotations(title="Disarm", destructiveHint=True),
     )
     async def disarm() -> CommandResult:
-        violation = validate("disarm")
-        if violation is not None:
-            return violation
-        return await resolved_services.controller.disarm()
+        return await _observed_command("disarm", {}, resolved_services.controller.disarm)
 
     @mcp.tool(
         title="Takeoff",
@@ -714,10 +788,11 @@ def create_server(
     async def takeoff(
         altitude_m: float = resolved_services.settings.default_takeoff_altitude_m,
     ) -> CommandResult:
-        violation = validate("takeoff", altitude_m=altitude_m)
-        if violation is not None:
-            return violation
-        return await resolved_services.controller.takeoff(altitude_m)
+        return await _observed_command(
+            "takeoff",
+            {"altitude_m": altitude_m},
+            lambda: resolved_services.controller.takeoff(altitude_m),
+        )
 
     @mcp.tool(
         title="Land",
@@ -725,10 +800,7 @@ def create_server(
         annotations=ToolAnnotations(title="Land", destructiveHint=True),
     )
     async def land() -> CommandResult:
-        violation = validate("land")
-        if violation is not None:
-            return violation
-        return await resolved_services.controller.land()
+        return await _observed_command("land", {}, resolved_services.controller.land)
 
     @mcp.tool(
         title="Hold",
@@ -736,10 +808,7 @@ def create_server(
         annotations=ToolAnnotations(title="Hold", destructiveHint=True),
     )
     async def hold() -> CommandResult:
-        violation = validate("hold")
-        if violation is not None:
-            return violation
-        return await resolved_services.controller.hold()
+        return await _observed_command("hold", {}, resolved_services.controller.hold)
 
     @mcp.tool(
         title="RTL",
@@ -747,10 +816,7 @@ def create_server(
         annotations=ToolAnnotations(title="RTL", destructiveHint=True),
     )
     async def rtl() -> CommandResult:
-        violation = validate("rtl")
-        if violation is not None:
-            return violation
-        return await resolved_services.controller.rtl()
+        return await _observed_command("rtl", {}, resolved_services.controller.rtl)
 
     @mcp.tool(
         title="Relative Move",
@@ -765,15 +831,11 @@ def create_server(
         east_m: float,
         altitude_m: float,
     ) -> CommandResult:
-        violation = validate(
+        return await _observed_command(
             "goto_relative",
-            north_m=north_m,
-            east_m=east_m,
-            altitude_m=altitude_m,
+            {"north_m": north_m, "east_m": east_m, "altitude_m": altitude_m},
+            lambda: resolved_services.controller.goto_relative(north_m, east_m, altitude_m),
         )
-        if violation is not None:
-            return violation
-        return await resolved_services.controller.goto_relative(north_m, east_m, altitude_m)
 
     @mcp.tool(
         title="Adjust Yaw",
@@ -784,10 +846,11 @@ def create_server(
         annotations=ToolAnnotations(title="Adjust Yaw", destructiveHint=True),
     )
     async def yaw_relative(delta_deg: float) -> CommandResult:
-        violation = validate("yaw_relative", delta_deg=delta_deg)
-        if violation is not None:
-            return violation
-        return await resolved_services.controller.yaw_relative(delta_deg)
+        return await _observed_command(
+            "yaw_relative",
+            {"delta_deg": delta_deg},
+            lambda: resolved_services.controller.yaw_relative(delta_deg),
+        )
 
     @mcp.tool(
         title="Adjust Gimbal Pitch",
@@ -798,10 +861,11 @@ def create_server(
         annotations=ToolAnnotations(title="Adjust Gimbal Pitch", destructiveHint=True),
     )
     async def gimbal_pitch_relative(delta_deg: float) -> CommandResult:
-        violation = validate("gimbal_pitch_relative", delta_deg=delta_deg)
-        if violation is not None:
-            return violation
-        result = await resolved_services.controller.gimbal_pitch_relative(delta_deg)
+        result = await _observed_command(
+            "gimbal_pitch_relative",
+            {"delta_deg": delta_deg},
+            lambda: resolved_services.controller.gimbal_pitch_relative(delta_deg),
+        )
         _record_gimbal_result(result, source="tool")
         return result
 
@@ -821,23 +885,23 @@ def create_server(
         velocity_m_s: float = resolved_services.settings.default_mission_speed_m_s,
         yaw_behavior: OrbitYawBehavior = OrbitYawBehavior.HOLD_FRONT_TO_CIRCLE_CENTER,
     ) -> CommandResult:
-        violation = validate(
+        return await _observed_command(
             "orbit",
-            latitude_deg=latitude_deg,
-            longitude_deg=longitude_deg,
-            absolute_altitude_m=absolute_altitude_m,
-            radius_m=radius_m,
-            velocity_m_s=velocity_m_s,
-        )
-        if violation is not None:
-            return violation
-        return await resolved_services.controller.orbit(
-            latitude_deg=latitude_deg,
-            longitude_deg=longitude_deg,
-            absolute_altitude_m=absolute_altitude_m,
-            radius_m=radius_m,
-            velocity_m_s=velocity_m_s,
-            yaw_behavior=yaw_behavior,
+            {
+                "latitude_deg": latitude_deg,
+                "longitude_deg": longitude_deg,
+                "absolute_altitude_m": absolute_altitude_m,
+                "radius_m": radius_m,
+                "velocity_m_s": velocity_m_s,
+            },
+            lambda: resolved_services.controller.orbit(
+                latitude_deg=latitude_deg,
+                longitude_deg=longitude_deg,
+                absolute_altitude_m=absolute_altitude_m,
+                radius_m=radius_m,
+                velocity_m_s=velocity_m_s,
+                yaw_behavior=yaw_behavior,
+            ),
         )
 
     @mcp.tool(
@@ -846,10 +910,12 @@ def create_server(
         annotations=ToolAnnotations(title="Run Mission", destructiveHint=True),
     )
     async def run_mission(waypoints: list[WaypointInput]) -> CommandResult:
-        violation = validate("run_mission", waypoints=waypoints)
-        if violation is not None:
-            return violation
-        return await resolved_services.controller.run_mission(waypoints)
+        return await _observed_command(
+            "run_mission",
+            {"waypoints": [waypoint.model_dump(mode="json") for waypoint in waypoints]},
+            lambda: resolved_services.controller.run_mission(waypoints),
+            validate_params={"waypoints": waypoints},
+        )
 
     @mcp.tool(
         title="Get Status",
@@ -861,10 +927,7 @@ def create_server(
         ),
     )
     async def get_status() -> CommandResult:
-        violation = validate("get_status")
-        if violation is not None:
-            return violation
-        return await resolved_services.controller.get_status()
+        return await _observed_command("get_status", {}, resolved_services.controller.get_status)
 
     @mcp.tool(
         title="Get Telemetry",
@@ -876,10 +939,20 @@ def create_server(
         ),
     )
     async def get_telemetry() -> TelemetrySnapshot:
+        started_at = monotonic()
+        telemetry_before = current_snapshot()
         violation = validate("get_telemetry")
-        if violation is not None:
-            return current_snapshot()
-        return await resolved_services.controller.get_telemetry()
+        result = current_snapshot() if violation is not None else await resolved_services.controller.get_telemetry()
+        _record_observability_event(
+            source="mcp",
+            action="command",
+            command_name="get_telemetry",
+            params={},
+            started_at=started_at,
+            result=result,
+            telemetry_before=telemetry_before,
+        )
+        return result
 
     @mcp.resource(
         "uav://status/state",
@@ -1559,6 +1632,7 @@ def create_server(
         get_config=_dashboard_config,
         get_runtime_health=_dashboard_runtime_health,
         get_evaluation_summary=_dashboard_evaluation_summary,
+        observability=observability,
         assistant_plan=_dashboard_assistant_plan,
         assistant_execute=_dashboard_assistant_execute,
         project_pixel=_dashboard_project_pixel,

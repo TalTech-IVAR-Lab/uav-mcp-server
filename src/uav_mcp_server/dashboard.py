@@ -22,6 +22,7 @@ from starlette.requests import Request
 from starlette.responses import HTMLResponse, JSONResponse, Response, StreamingResponse
 
 from uav_mcp_server.dashboard_ui import DASHBOARD_HTML
+from uav_mcp_server.observability_ui import OBSERVABILITY_HTML
 from uav_mcp_server.navigation import coordinate_offset_m
 from uav_mcp_server.types import CommandResult, ErrorCode, OrbitYawBehavior, TelemetrySnapshot
 
@@ -384,6 +385,7 @@ class DashboardState:
     get_config: Any | None = None  # Callable[[], dict[str, Any]]
     get_runtime_health: Any | None = None  # Callable[[], dict[str, Any]]
     get_evaluation_summary: Any | None = None  # Callable[[], dict[str, Any]]
+    observability: Any | None = None
     assistant_plan: Any | None = None  # async (dict[str, Any]) -> dict[str, Any]
     assistant_execute: Any | None = None  # async (dict[str, Any]) -> dict[str, Any]
     project_pixel: Any | None = None  # async (dict[str, Any]) -> dict[str, Any]
@@ -404,6 +406,11 @@ def register_dashboard_routes(mcp: Any, state: DashboardState) -> None:
     @mcp.custom_route("/dashboard/", methods=["GET"])
     async def dashboard_index(request: Request) -> Response:
         return HTMLResponse(DASHBOARD_HTML)
+
+    @mcp.custom_route("/dashboard/observability/", methods=["GET"])
+    async def observability_index(request: Request) -> Response:
+        del request
+        return HTMLResponse(OBSERVABILITY_HTML)
 
     @mcp.custom_route("/dashboard/api/status", methods=["GET"])
     async def dashboard_api_status(request: Request) -> Response:
@@ -430,6 +437,52 @@ def register_dashboard_routes(mcp: Any, state: DashboardState) -> None:
         if state.get_evaluation_summary is None:
             return JSONResponse({"summary_line": "Evaluation summary is unavailable."}, status_code=200)
         return JSONResponse(state.get_evaluation_summary())
+
+    @mcp.custom_route("/dashboard/api/observability/summary", methods=["GET"])
+    async def dashboard_api_observability_summary(request: Request) -> Response:
+        del request
+        if state.observability is None:
+            return JSONResponse({"summary": "Observability is unavailable."}, status_code=200)
+        runtime_health = state.get_runtime_health() if state.get_runtime_health is not None else {}
+        return JSONResponse(state.observability.summary(runtime_health=runtime_health))
+
+    @mcp.custom_route("/dashboard/api/observability/runs", methods=["GET"])
+    async def dashboard_api_observability_runs(request: Request) -> Response:
+        del request
+        if state.observability is None:
+            return JSONResponse({"runs": [], "run_count": 0}, status_code=200)
+        return JSONResponse(state.observability.list_runs())
+
+    @mcp.custom_route("/dashboard/api/observability/runs/{run_id}", methods=["GET"])
+    async def dashboard_api_observability_run_detail(request: Request) -> Response:
+        if state.observability is None:
+            return JSONResponse({"message": "Observability is unavailable."}, status_code=404)
+        try:
+            return JSONResponse(state.observability.run_detail(request.path_params["run_id"]))
+        except FileNotFoundError:
+            return JSONResponse({"message": "Observability run not found."}, status_code=404)
+        except ValueError as exc:
+            return JSONResponse({"message": str(exc)}, status_code=400)
+
+    @mcp.custom_route("/dashboard/api/observability/events", methods=["GET"])
+    async def dashboard_api_observability_events(request: Request) -> Response:
+        if state.observability is None:
+            return JSONResponse({"events": []}, status_code=200)
+        limit = 200
+        raw_limit = request.query_params.get("limit")
+        if raw_limit is not None:
+            try:
+                limit = max(1, min(int(raw_limit), 1000))
+            except ValueError:
+                pass
+        return JSONResponse({"events": state.observability.recent_events(limit=limit)})
+
+    @mcp.custom_route("/dashboard/api/observability/export", methods=["GET"])
+    async def dashboard_api_observability_export(request: Request) -> Response:
+        del request
+        if state.observability is None:
+            return JSONResponse({"message": "Observability is unavailable."}, status_code=404)
+        return JSONResponse(state.observability.export())
 
     @mcp.custom_route("/dashboard/api/commands", methods=["GET"])
     async def dashboard_api_commands(request: Request) -> Response:
