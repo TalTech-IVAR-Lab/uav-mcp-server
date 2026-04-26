@@ -195,6 +195,7 @@ async def test_dashboard_api_config_exposes_map_and_camera_settings(dashboard_ap
     data = resp.json()
     assert data["geofence_center_lat"] == services.settings.geofence_center_lat
     assert data["camera"]["params"]["width_px"] == services.settings.camera_width_px
+    assert data["camera"]["stabilized"] == services.settings.camera_stabilized
     assert data["manual_control"]["supports_translation"] is True
     assert data["manual_control"]["supports_yaw"] is True
     assert data["monitoring"]["runtime_health_url"] == "/dashboard/api/runtime-health"
@@ -669,6 +670,55 @@ async def test_dashboard_project_pixel_rejects_missing_pose(dashboard_projection
     )
     assert resp.status_code == 409
     assert resp.json()["error_code"] == ErrorCode.PREFLIGHT_FAILED.value
+
+
+@pytest.mark.asyncio
+async def test_dashboard_project_pixel_ignores_airframe_tilt_for_stabilized_camera() -> None:
+    import httpx
+
+    settings = Settings(
+        _env_file=None,
+        px4_model="gazebo-classic",
+        camera_enabled=False,
+        camera_mount_pitch_deg=-45.0,
+    )
+    server, _backend, services = _make_server_and_backend(settings=settings)
+    await services.controller.telemetry_manager.update(
+        state=DroneState.AIRBORNE,
+        connected=True,
+        armed=True,
+        in_air=True,
+        latitude_deg=services.settings.geofence_center_lat,
+        longitude_deg=services.settings.geofence_center_lon,
+        absolute_altitude_m=150.0,
+        relative_altitude_m=10.0,
+        home_absolute_altitude_m=140.0,
+        yaw_deg=90.0,
+        pitch_deg=-20.0,
+        roll_deg=15.0,
+        battery_percent=80.0,
+        flight_mode="HOLD",
+        is_global_position_ok=True,
+        is_home_position_ok=True,
+        is_gyrometer_calibration_ok=True,
+        is_accelerometer_calibration_ok=True,
+        gps_satellites=12,
+    )
+
+    transport = httpx.ASGITransport(app=server.streamable_http_app())
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post(
+            "/dashboard/api/project_pixel",
+            json={
+                "u": services.settings.camera_width_px / 2,
+                "v": services.settings.camera_height_px / 2,
+            },
+        )
+
+    data = resp.json()
+    assert resp.status_code == 200
+    assert data["north_m"] == pytest.approx(0.0, abs=0.5)
+    assert data["east_m"] == pytest.approx(10.0, abs=0.5)
 
 
 @pytest.mark.asyncio

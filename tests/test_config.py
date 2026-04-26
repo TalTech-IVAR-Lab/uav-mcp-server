@@ -36,6 +36,7 @@ def test_settings_defaults() -> None:
     assert settings.camera_height_px == 480
     assert settings.camera_hfov_rad == 1.047
     assert settings.camera_focal_length_px == 554.382712
+    assert settings.camera_stabilized is False
 
 
 def test_settings_accept_env_overrides(monkeypatch) -> None:
@@ -61,6 +62,7 @@ def test_settings_apply_typhoon_profile_for_gazebo_classic_alias() -> None:
     assert settings.camera_height_px == TYPHOON_H480_PROFILE.camera_height_px
     assert settings.camera_hfov_rad == TYPHOON_H480_PROFILE.camera_hfov_rad
     assert settings.camera_focal_length_px == TYPHOON_H480_PROFILE.camera_focal_length_px
+    assert settings.camera_stabilized is True
     assert settings.manual_control_supports_gimbal_pitch is True
 
 
@@ -73,6 +75,7 @@ def test_settings_apply_iris_profile_when_requested_explicitly() -> None:
     assert settings.camera_height_px == IRIS_FPV_CAM_PROFILE.camera_height_px
     assert settings.camera_hfov_rad == IRIS_FPV_CAM_PROFILE.camera_hfov_rad
     assert settings.camera_focal_length_px == IRIS_FPV_CAM_PROFILE.camera_focal_length_px
+    assert settings.camera_stabilized is False
     assert settings.manual_control_supports_gimbal_pitch is False
 
 
@@ -82,10 +85,12 @@ def test_settings_preserve_explicit_camera_overrides_across_profile_application(
         px4_model="gazebo-classic",
         camera_width_px=1280,
         camera_height_px=720,
+        camera_stabilized=False,
         manual_control_supports_gimbal_pitch=False,
     )
 
     assert settings.px4_model == TYPHOON_H480_PROFILE.model
     assert settings.camera_width_px == 1280
     assert settings.camera_height_px == 720
+    assert settings.camera_stabilized is False
     assert settings.manual_control_supports_gimbal_pitch is False

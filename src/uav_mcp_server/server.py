@@ -340,6 +340,11 @@ def create_server(
             or snapshot.relative_altitude_m is None
         ):
             raise RuntimeError("Telemetry pose is incomplete; projection is not available yet.")
+        pitch_deg = snapshot.pitch_deg or 0.0
+        roll_deg = snapshot.roll_deg or 0.0
+        if resolved_services.settings.camera_stabilized:
+            pitch_deg = 0.0
+            roll_deg = 0.0
         return DronePose(
             lat_deg=snapshot.latitude_deg,
             lon_deg=snapshot.longitude_deg,
@@ -347,8 +352,8 @@ def create_server(
             relative_altitude_m=snapshot.relative_altitude_m,
             home_absolute_altitude_m=snapshot.inferred_home_absolute_altitude_m(),
             yaw_deg=snapshot.yaw_deg or 0.0,
-            pitch_deg=snapshot.pitch_deg or 0.0,
-            roll_deg=snapshot.roll_deg or 0.0,
+            pitch_deg=pitch_deg,
+            roll_deg=roll_deg,
         )
 
     assistant = DashboardAssistant(resolved_services.settings)
@@ -1060,6 +1065,7 @@ def create_server(
             },
             "camera": {
                 **_camera_status_dict(),
+                "stabilized": settings.camera_stabilized,
                 "params": camera_params.to_dict(),
                 "stream_url": "/dashboard/api/camera/stream",
             },

@@ -18,6 +18,7 @@ class Px4ModelProfile:
     camera_height_px: int
     camera_hfov_rad: float
     camera_focal_length_px: float
+    camera_stabilized: bool
     supports_gimbal_pitch: bool
     supports_gimbal_yaw: bool = False
 
@@ -29,6 +30,7 @@ IRIS_FPV_CAM_PROFILE = Px4ModelProfile(
     camera_height_px=480,
     camera_hfov_rad=1.047,
     camera_focal_length_px=554.382712,
+    camera_stabilized=False,
     supports_gimbal_pitch=False,
     supports_gimbal_yaw=False,
 )
@@ -39,6 +41,7 @@ TYPHOON_H480_PROFILE = Px4ModelProfile(
     camera_height_px=360,
     camera_hfov_rad=2.0,
     camera_focal_length_px=205.46963709898586,
+    camera_stabilized=True,
     supports_gimbal_pitch=True,
     supports_gimbal_yaw=True,
 )
@@ -114,6 +117,7 @@ class Settings(BaseSettings):
     camera_height_px: int = Field(default=480, ge=1)
     camera_hfov_rad: float = Field(default=1.047, gt=0)
     camera_focal_length_px: float = Field(default=554.382712, gt=0)
+    camera_stabilized: bool = Field(default=False)
     camera_mount_yaw_deg: float = Field(default=0.0)
     camera_mount_pitch_deg: float = Field(default=0.0)
     camera_mount_roll_deg: float = Field(default=0.0)
@@ -137,6 +141,8 @@ class Settings(BaseSettings):
             self.camera_hfov_rad = profile.camera_hfov_rad
         if "camera_focal_length_px" not in self.model_fields_set:
             self.camera_focal_length_px = profile.camera_focal_length_px
+        if "camera_stabilized" not in self.model_fields_set:
+            self.camera_stabilized = profile.camera_stabilized
         if "manual_control_supports_gimbal_pitch" not in self.model_fields_set:
             self.manual_control_supports_gimbal_pitch = profile.supports_gimbal_pitch
         if "manual_control_supports_gimbal_yaw" not in self.model_fields_set:
