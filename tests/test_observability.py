@@ -101,7 +101,7 @@ def test_observability_store_records_runtime_events(tmp_path) -> None:
         ObservabilityEvent(
             timestamp="2026-04-20T10:00:00.000+00:00",
             source="mcp",
-            action="tool_call",
+            action="command",
             command="goto_relative",
             success=False,
             error_code="geofence_violation",

@@ -44,6 +44,16 @@ class OrbitYawBehavior(StrEnum):
     UNCONTROLLED = "uncontrolled"
     HOLD_INITIAL_HEADING = "hold_initial_heading"
 
+    @classmethod
+    def parse(cls, raw_val: Any) -> "OrbitYawBehavior":
+        if isinstance(raw_val, str):
+            val = raw_val.lower()
+            if val in ("face_center", "center", "face_target", "look_at_target", "hold_front"):
+                return cls.HOLD_FRONT_TO_CIRCLE_CENTER
+            if val in ("forward", "tangent", "hold_front_tangent"):
+                return cls.HOLD_FRONT_TANGENT_TO_CIRCLE
+        return cls(raw_val)
+
 
 class CommandResult(BaseModel):
     success: bool
