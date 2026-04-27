@@ -393,6 +393,8 @@ def create_server(
 
         gimbal_state["last_checked_at"] = datetime.now(tz=UTC).isoformat(timespec="seconds")
         gimbal_state["last_source"] = source
+        gimbal_state["tracked_pitch_deg"] = resolved_services.controller.current_gimbal_pitch_deg()
+        gimbal_state["tracked_yaw_deg"] = resolved_services.controller.current_gimbal_yaw_deg()
 
         if result.success:
             gimbal_state["status"] = "available"
@@ -1157,7 +1159,7 @@ def create_server(
             },
         }
 
-    async def _dashboard_project_pixel(params: dict[str, Any]) -> dict[str, float]:
+    async def _dashboard_project_pixel(params: dict[str, Any]) -> dict[str, Any]:
         try:
             u = float(params["u"])
             v = float(params["v"])
@@ -1165,6 +1167,7 @@ def create_server(
             raise ValueError("Projection requires numeric 'u' and 'v' pixel coordinates.") from exc
         gimbal_pitch_deg = resolved_services.controller.current_gimbal_pitch_deg()
         gimbal_yaw_deg = resolved_services.controller.current_gimbal_yaw_deg()
+        pose = current_drone_pose()
         effective_params = CameraParams(
             width_px=camera_params.width_px,
             height_px=camera_params.height_px,
@@ -1174,7 +1177,29 @@ def create_server(
             mount_pitch_deg=camera_params.mount_pitch_deg + gimbal_pitch_deg,
             mount_roll_deg=camera_params.mount_roll_deg,
         )
-        return pixel_to_world(u, v, effective_params, current_drone_pose()).to_dict()
+        projection: dict[str, Any] = pixel_to_world(u, v, effective_params, pose).to_dict()
+        projection["pixel"] = {"u": u, "v": v}
+        projection["selection_anchor"] = str(params.get("selection_anchor") or "pixel")
+        projection["camera"] = {
+            "base": camera_params.to_dict(),
+            "effective": effective_params.to_dict(),
+            "stabilized": resolved_services.settings.camera_stabilized,
+        }
+        projection["gimbal"] = {
+            "tracked_pitch_deg": gimbal_pitch_deg,
+            "tracked_yaw_deg": gimbal_yaw_deg,
+        }
+        projection["pose"] = {
+            "latitude_deg": pose.lat_deg,
+            "longitude_deg": pose.lon_deg,
+            "absolute_altitude_m": pose.absolute_altitude_m,
+            "relative_altitude_m": pose.relative_altitude_m,
+            "home_absolute_altitude_m": pose.home_absolute_altitude_m,
+            "yaw_deg": pose.yaw_deg,
+            "pitch_deg": pose.pitch_deg,
+            "roll_deg": pose.roll_deg,
+        }
+        return projection
 
     async def _dashboard_select_and_orbit(params: dict[str, Any]) -> CommandResult:
         try:
@@ -1230,7 +1255,11 @@ def create_server(
         if result.data is None:
             result.data = {}
         result.data["projection"] = projection
-        result.data["selection"] = {"u": float(params["u"]), "v": float(params["v"])}
+        result.data["selection"] = {
+            "u": float(params["u"]),
+            "v": float(params["v"]),
+            "selection_anchor": projection.get("selection_anchor"),
+        }
         result.data["orbit_resolution"] = resolved
         result.data["framing"] = framing
         return result
@@ -1306,15 +1335,20 @@ def create_server(
         requested_yaw_behavior: OrbitYawBehavior,
         explicit_yaw_behavior: bool,
     ) -> tuple[OrbitYawBehavior, dict[str, Any]]:
-        roi_status = await _best_effort_point_roi(
-            target_latitude_deg,
-            target_longitude_deg,
-            target_absolute_altitude_m,
-        )
         resolved_yaw_behavior = requested_yaw_behavior
         framing_mode = "airframe_center"
-        if not explicit_yaw_behavior and roi_status["success"]:
-            resolved_yaw_behavior = OrbitYawBehavior.HOLD_INITIAL_HEADING
+        roi_status = {
+            "attempted": False,
+            "success": False,
+            "message": "ROI not used; airframe yaw is responsible for orbit framing.",
+            "error_code": None,
+        }
+        if explicit_yaw_behavior and requested_yaw_behavior is OrbitYawBehavior.HOLD_INITIAL_HEADING:
+            roi_status = await _best_effort_point_roi(
+                target_latitude_deg,
+                target_longitude_deg,
+                target_absolute_altitude_m,
+            )
             framing_mode = "gimbal_roi"
         return resolved_yaw_behavior, {
             "framing_mode": framing_mode,
@@ -1421,7 +1455,11 @@ def create_server(
         if result.data is None:
             result.data = {}
         result.data["projection"] = projection
-        result.data["selection"] = {"u": float(params["u"]), "v": float(params["v"])}
+        result.data["selection"] = {
+            "u": float(params["u"]),
+            "v": float(params["v"]),
+            "selection_anchor": projection.get("selection_anchor"),
+        }
         return result
 
     async def _dashboard_assistant_plan(params: dict[str, Any]) -> dict[str, Any]:

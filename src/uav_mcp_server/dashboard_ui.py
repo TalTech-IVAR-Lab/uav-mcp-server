@@ -283,28 +283,36 @@ DASHBOARD_HTML = """\
   .map-surface { flex: 1; min-height: 80px; border-radius: 8px; overflow: hidden; border: 1px solid var(--panel-border); }
   #map { width: 100%; height: 100%; filter: contrast(1.1) brightness(0.8) sepia(0.25) hue-rotate(180deg) saturate(1.4); }
   .map-footer { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
-  .legend { display: flex; flex-wrap: wrap; gap: 6px; }
-  .legend-row { display: flex; align-items: center; gap: 3px; color: var(--text-muted); font-size: 10px; }
-  .legend-swatch { width: 8px; height: 8px; border-radius: 50%; }
-  .swatch-drone  { background: var(--accent); }
-  .swatch-home   { background: var(--success); }
-  .swatch-target { background: var(--warning); }
-  .swatch-fence  { background: rgba(0,229,255,0.4); border: 1px solid var(--accent); }
+  .legend { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px 8px; }
+  .legend-row { display: flex; align-items: center; gap: 5px; color: var(--text-muted); font-size: 10px; min-width: 0; }
+  .legend-swatch { width: 12px; height: 12px; flex: 0 0 12px; position: relative; }
+  .swatch-drone  { border-radius: 50%; background: var(--accent); border: 1px solid #fff; box-shadow: 0 0 6px var(--accent); }
+  .swatch-drone::after {
+    content: ''; position: absolute; top: -4px; left: 50%; transform: translateX(-50%);
+    width: 0; height: 0; border-left: 3px solid transparent; border-right: 3px solid transparent; border-bottom: 7px solid #fff;
+  }
+  .swatch-home   { border-radius: 50%; background: var(--success); border: 2px solid #fff; }
+  .swatch-target { border-radius: 50%; background: var(--warning); border: 2px solid #fff; }
+  .swatch-projection { border-radius: 50%; background: #ec5f8f; border: 2px solid #fff; }
+  .swatch-fence  { border-radius: 2px; background: rgba(0,229,255,0.12); border: 1px solid var(--accent); }
   .maplibregl-map { background: transparent !important; }
   .drone-icon {
+    --yaw-deg: 0deg;
     width: 20px; height: 20px; border-radius: 50%;
     border: 2px solid #fff; background: var(--accent);
     box-shadow: 0 0 8px var(--accent); position: relative;
   }
   .drone-icon::after {
-    content: ''; position: absolute; top: 0; left: 50%;
-    transform: translateX(-50%) translateY(-50%);
+    content: ''; position: absolute; top: 50%; left: 50%;
+    transform: translate(-50%, -95%) rotate(var(--yaw-deg));
+    transform-origin: 50% 95%;
     width: 0; height: 0;
     border-left: 4px solid transparent; border-right: 4px solid transparent;
-    border-bottom: 7px solid #fff;
+    border-bottom: 9px solid #fff;
   }
   .home-icon   { width: 12px; height: 12px; border-radius: 50%; border: 2px solid #fff; background: var(--success); }
   .target-icon { width: 12px; height: 12px; border-radius: 50%; border: 2px solid #fff; background: var(--warning); animation: pulseGlow 2s infinite; }
+  .projection-icon { width: 12px; height: 12px; border-radius: 50%; border: 2px solid #fff; background: #ec5f8f; animation: pulseGlow 2s infinite; }
 
   /* ── Command Execution Panel ── */
   .command-shell { display: flex; flex-direction: column; gap: 6px; height: 100%; }
@@ -319,7 +327,13 @@ DASHBOARD_HTML = """\
   .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
   .tab-content { flex: 1; min-height: 0; overflow-y: auto; }
 
-  .command-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; }
+  .command-sections { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+  .command-section { border: 1px solid rgba(255,255,255,0.04); border-radius: 8px; padding: 6px; background: rgba(0,0,0,0.12); }
+  .command-section-title {
+    font-size: 8px; color: var(--text-muted); text-transform: uppercase;
+    letter-spacing: 0.08em; font-weight: 700; margin-bottom: 5px;
+  }
+  .command-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; }
   .cmd-btn {
     padding: 6px 4px; display: flex; flex-direction: column; gap: 2px;
     align-items: center; text-align: center;
@@ -337,6 +351,7 @@ DASHBOARD_HTML = """\
   .cmd-danger { border-left: 2px solid var(--danger); }
   .cmd-ghost  { border-left: 2px solid var(--text-muted); }
   .field-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+  .field-help { display: block; margin-top: 2px; font-size: 8px; color: var(--text-muted); line-height: 1.2; }
 
   /* ── Manual Override Panel ── */
   .controls-shell { display: flex; flex-direction: column; gap: 4px; height: 100%; }
@@ -553,9 +568,10 @@ DASHBOARD_HTML = """\
           <div class="card" style="display:flex; flex-direction:column; justify-content:center;">
             <div class="card-title" style="margin-bottom:4px;">Symbology</div>
             <div class="legend">
-              <div class="legend-row"><span class="legend-swatch swatch-drone"></span>Asset</div>
+              <div class="legend-row"><span class="legend-swatch swatch-drone"></span>Drone + heading</div>
               <div class="legend-row"><span class="legend-swatch swatch-home"></span>Home</div>
-              <div class="legend-row"><span class="legend-swatch swatch-target"></span>Objective</div>
+              <div class="legend-row"><span class="legend-swatch swatch-target"></span>Map target</div>
+              <div class="legend-row"><span class="legend-swatch swatch-projection"></span>Camera projection</div>
               <div class="legend-row"><span class="legend-swatch swatch-fence"></span>Geofence</div>
             </div>
           </div>
@@ -633,14 +649,14 @@ DASHBOARD_HTML = """\
         </div>
 
         <div id="panel-cmd" class="tab-content">
-          <div id="command-grid" class="command-grid"></div>
+          <div id="command-grid" class="command-sections"></div>
           <div class="field-grid" style="margin-top:8px;">
-            <label class="field-group"><span class="field-label">Takeoff Alt</span><input id="p-alt" class="field-input" type="number" value="5" step="0.5"></label>
-            <label class="field-group"><span class="field-label">Vector N</span><input id="p-north" class="field-input" type="number" value="5" step="1"></label>
-            <label class="field-group"><span class="field-label">Vector E</span><input id="p-east" class="field-input" type="number" value="0" step="1"></label>
-            <label class="field-group"><span class="field-label">Goto Alt</span><input id="p-goto-alt" class="field-input" type="number" value="5" step="0.5"></label>
-            <label class="field-group"><span class="field-label">Orbit Radius</span><input id="p-orbit-radius" class="field-input" type="number" value="12" step="1"></label>
-            <label class="field-group"><span class="field-label">Velocity</span><input id="p-orbit-speed" class="field-input" type="number" value="3" step="0.5"></label>
+            <label class="field-group"><span class="field-label">Takeoff Altitude</span><input id="p-alt" class="field-input" type="number" value="5" step="0.5"><span class="field-help">meters above launch</span></label>
+            <label class="field-group"><span class="field-label">Move North/South</span><input id="p-north" class="field-input" type="number" value="10" step="1"><span class="field-help">+N, -S meters</span></label>
+            <label class="field-group"><span class="field-label">Move East/West</span><input id="p-east" class="field-input" type="number" value="0" step="1"><span class="field-help">+E, -W meters</span></label>
+            <label class="field-group"><span class="field-label">Goto Altitude</span><input id="p-goto-alt" class="field-input" type="number" value="5" step="0.5"><span class="field-help">meters above launch</span></label>
+            <label class="field-group"><span class="field-label">Orbit Radius</span><input id="p-orbit-radius" class="field-input" type="number" value="12" step="1"><span class="field-help">standoff meters</span></label>
+            <label class="field-group"><span class="field-label">Orbit Speed</span><input id="p-orbit-speed" class="field-input" type="number" value="3" step="0.5"><span class="field-help">meters/second</span></label>
           </div>
         </div>
 
@@ -705,9 +721,9 @@ DASHBOARD_HTML = """\
         </div>
 
         <div class="manual-bottom">
-          <span class="field-label">XY</span>
-          <input id="manual-step" class="field-input" type="number" value="3" min="0.5" step="0.5">
-          <span class="field-label">Z</span>
+          <span class="field-label">XY m</span>
+          <input id="manual-step" class="field-input" type="number" value="10" min="0.5" step="0.5">
+          <span class="field-label">Z m</span>
           <input id="manual-alt-step" class="field-input" type="number" value="1.5" min="0.5" step="0.5">
         </div>
 
@@ -853,10 +869,16 @@ DASHBOARD_HTML = """\
 
   function commandDescriptor(command) {
     const name = command.name;
-    if (name === 'guided_takeoff' || name === 'takeoff') return 'ALT';
-    if (name === 'goto_relative') return 'MOVE';
-    if (name === 'get_status' || name === 'get_telemetry') return 'SYNC';
-    return 'SAFE';
+    if (name === 'connect') return 'LINK';
+    if (name === 'guided_takeoff' || name === 'takeoff') return 'CLIMB';
+    if (name === 'goto_relative') return 'N/E';
+    if (name === 'orbit') return 'TARGET';
+    if (name === 'hold') return 'PAUSE';
+    if (name === 'land') return 'DESCEND';
+    if (name === 'rtl') return 'HOME';
+    if (name === 'get_status' || name === 'get_telemetry') return 'READ';
+    if (name === 'arm' || name === 'disarm') return 'MOTORS';
+    return 'CMD';
   }
 
   function updateTelemetry(snapshot) {
@@ -1086,7 +1108,7 @@ DASHBOARD_HTML = """\
 
     var homeEl = makeDivIconEl('home-icon');
     var droneEl = makeDivIconEl('drone-icon');
-    var targetEl = makeDivIconEl('target-icon');
+    var targetEl = makeDivIconEl('projection-icon');
     var mapTargetEl = makeDivIconEl('target-icon');
     targetEl.style.display = 'none';
     mapTargetEl.style.display = 'none';
@@ -1168,8 +1190,7 @@ DASHBOARD_HTML = """\
     if (!appState.droneMarker) return;
     var icon = appState.droneMarker.getElement();
     if (!icon) return;
-    icon.style.transformOrigin = '10px 10px';
-    icon.style.transform = 'rotate(' + (yawDeg || 0) + 'deg)';
+    icon.style.setProperty('--yaw-deg', (yawDeg || 0) + 'deg');
   }
 
   function updateMapWithTelemetry(snapshot) {
@@ -1340,11 +1361,15 @@ DASHBOARD_HTML = """\
       return 'Select a point in the camera feed.';
     }
     var p = selection.projection;
+    var gimbal = p.gimbal || {};
+    var anchor = selection.anchorLabel || p.selection_anchor || 'pixel';
     return [
+      anchor,
       'px ' + selection.u.toFixed(0) + ',' + selection.v.toFixed(0),
       p.latitude_deg.toFixed(6),
       p.longitude_deg.toFixed(6),
-      p.distance_m.toFixed(1) + 'm'
+      p.distance_m.toFixed(1) + 'm',
+      'gimbal ' + formatNumber(gimbal.tracked_pitch_deg, 1, '--') + 'deg'
     ].join(' | ');
   }
 
@@ -1382,6 +1407,13 @@ DASHBOARD_HTML = """\
     };
   }
 
+  function cameraPixelFromOverlay(x, y, rectWidth, rectHeight, params) {
+    return {
+      u: rectWidth ? (x / rectWidth) * params.width_px : params.width_px / 2,
+      v: rectHeight ? (y / rectHeight) * params.height_px : params.height_px / 2,
+    };
+  }
+
   function setSelectionBox(left, top, width, height) {
     var box = $('selection-box');
     box.classList.add('visible');
@@ -1398,7 +1430,11 @@ DASHBOARD_HTML = """\
       var projection = await fetchJSON('/dashboard/api/project_pixel', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ u: selection.u, v: selection.v }),
+        body: JSON.stringify({
+          u: selection.u,
+          v: selection.v,
+          selection_anchor: selection.selection_anchor || 'pixel',
+        }),
       });
       appState.selection = Object.assign({}, selection, { projection: projection });
       updateSelectionUI();
@@ -1435,22 +1471,34 @@ DASHBOARD_HTML = """\
       if (!appState.selecting || !appState.selectionStart) return;
       appState.selecting = false;
       var current = overlayPoint(event);
-      var left = Math.min(appState.selectionStart.x, current.x);
-      var top = Math.min(appState.selectionStart.y, current.y);
-      var width = Math.max(20, Math.abs(current.x - appState.selectionStart.x));
-      var height = Math.max(20, Math.abs(current.y - appState.selectionStart.y));
-      setSelectionBox(left, top, width, height);
+      var rawLeft = Math.min(appState.selectionStart.x, current.x);
+      var rawTop = Math.min(appState.selectionStart.y, current.y);
+      var rawWidth = Math.abs(current.x - appState.selectionStart.x);
+      var rawHeight = Math.abs(current.y - appState.selectionStart.y);
+      var isBoxSelection = rawWidth >= 8 || rawHeight >= 8;
+      var displayLeft = rawLeft;
+      var displayTop = rawTop;
+      var displayWidth = Math.max(20, rawWidth);
+      var displayHeight = Math.max(20, rawHeight);
+      if (!isBoxSelection) {
+        displayWidth = 18;
+        displayHeight = 18;
+        displayLeft = Math.max(0, Math.min(current.rectWidth - displayWidth, current.x - displayWidth / 2));
+        displayTop = Math.max(0, Math.min(current.rectHeight - displayHeight, current.y - displayHeight / 2));
+      }
+      setSelectionBox(displayLeft, displayTop, displayWidth, displayHeight);
       var params = appState.config && appState.config.camera ? appState.config.camera.params : null;
       if (!params || !current.rectWidth || !current.rectHeight) {
         notify('Camera parameters unavailable.', 'err');
         return;
       }
-      var centerX = left + width / 2;
-      var centerY = top + height / 2;
-      await projectSelection({
-        u: (centerX / current.rectWidth) * params.width_px,
-        v: (centerY / current.rectHeight) * params.height_px,
-      });
+      var anchorX = isBoxSelection ? rawLeft + rawWidth / 2 : current.x;
+      var anchorY = isBoxSelection ? rawTop + rawHeight : current.y;
+      var pixel = cameraPixelFromOverlay(anchorX, anchorY, current.rectWidth, current.rectHeight, params);
+      await projectSelection(Object.assign(pixel, {
+        selection_anchor: isBoxSelection ? 'ground_footpoint' : 'clicked_pixel',
+        anchorLabel: isBoxSelection ? 'footpoint' : 'click',
+      }));
     }
 
     overlay.addEventListener('pointerup', finalizeSelection);
@@ -1463,7 +1511,12 @@ DASHBOARD_HTML = """\
       var params = appState.config && appState.config.camera ? appState.config.camera.params : null;
       if (!params) { notify('Camera parameters unavailable.', 'err'); return; }
       setSelectionBox(0, 0, 0, 0);
-      projectSelection({ u: params.width_px / 2, v: params.height_px / 2 });
+      projectSelection({
+        u: params.width_px / 2,
+        v: params.height_px / 2,
+        selection_anchor: 'reticle_center',
+        anchorLabel: 'center',
+      });
     });
     $('orbit-selection').addEventListener('click', function() { runSelectionAction('orbit'); });
     $('approach-selection').addEventListener('click', function() { runSelectionAction('approach'); });
@@ -1477,6 +1530,7 @@ DASHBOARD_HTML = """\
     var payload = {
       u: appState.selection.u,
       v: appState.selection.v,
+      selection_anchor: appState.selection.selection_anchor || 'pixel',
       radius_m: parseFloat($('p-orbit-radius').value),
       velocity_m_s: parseFloat($('p-orbit-speed').value),
       altitude_m: parseFloat($('p-goto-alt').value),
@@ -1558,6 +1612,11 @@ DASHBOARD_HTML = """\
   }
 
   function handleCommandClick(commandName) {
+    if (commandName === 'orbit') {
+      if (!appState.mapTarget) { notify('Select a map target before orbit.', 'err'); return; }
+      runMapTargetAction('orbit');
+      return;
+    }
     var payload = commandPayloadFor(commandName);
     if (payload === null) return;
     sendCommand(commandName, payload);
@@ -1572,17 +1631,37 @@ DASHBOARD_HTML = """\
       return;
     }
     if (summary) summary.textContent = appState.commands.length + ' commands';
-    appState.commands.forEach(function(command) {
-      var button = document.createElement('button');
-      button.type = 'button';
-      button.className = 'cmd-btn cmd-' + (command.tone || 'neutral');
-      button.title = command.hint || command.label;
-      button.dataset.command = command.name;
-      button.innerHTML =
-        '<span class="cmd-label">' + esc(command.label || command.name) + '</span>' +
-        '<span class="cmd-meta">' + esc(commandDescriptor(command)) + '</span>';
-      button.addEventListener('click', function() { handleCommandClick(command.name); });
-      container.appendChild(button);
+
+    var groups = [
+      { title: 'Session', names: ['connect', 'get_status', 'get_telemetry'] },
+      { title: 'Motors', names: ['arm', 'disarm'] },
+      { title: 'Flight', names: ['guided_takeoff', 'hold', 'land', 'rtl'] },
+      { title: 'Navigation', names: ['goto_relative', 'orbit'] },
+    ];
+    var byName = {};
+    appState.commands.forEach(function(command) { byName[command.name] = command; });
+    groups.forEach(function(group) {
+      var available = group.names.map(function(name) { return byName[name]; }).filter(Boolean);
+      if (!available.length) return;
+      var section = document.createElement('section');
+      section.className = 'command-section';
+      section.innerHTML = '<div class="command-section-title">' + esc(group.title) + '</div>';
+      var grid = document.createElement('div');
+      grid.className = 'command-grid';
+      available.forEach(function(command) {
+        var button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'cmd-btn cmd-' + (command.tone || 'neutral');
+        button.title = command.hint || command.label;
+        button.dataset.command = command.name;
+        button.innerHTML =
+          '<span class="cmd-label">' + esc(command.label || command.name) + '</span>' +
+          '<span class="cmd-meta">' + esc(commandDescriptor(command)) + '</span>';
+        button.addEventListener('click', function() { handleCommandClick(command.name); });
+        grid.appendChild(button);
+      });
+      section.appendChild(grid);
+      container.appendChild(section);
     });
   }
 
@@ -2046,7 +2125,7 @@ DASHBOARD_HTML = """\
     window.addEventListener('keydown', function(event) {
       var tag = event.target && event.target.tagName ? event.target.tagName.toLowerCase() : '';
       if (tag === 'input' || tag === 'textarea') return;
-      var action = MANUAL_KEYMAP[event.key];
+      var action = MANUAL_KEYMAP[event.key] || MANUAL_KEYMAP[String(event.key).toLowerCase()];
       if (!action || !appState.manual.enabled) return;
       event.preventDefault();
       setActiveManualButton(action);
@@ -2054,7 +2133,7 @@ DASHBOARD_HTML = """\
     });
 
     window.addEventListener('keyup', function(event) {
-      var action = MANUAL_KEYMAP[event.key];
+      var action = MANUAL_KEYMAP[event.key] || MANUAL_KEYMAP[String(event.key).toLowerCase()];
       if (action) clearActiveManualButton(action);
     });
   }

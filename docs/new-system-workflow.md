@@ -158,9 +158,10 @@ cp .env.example .env
 Important defaults in `.env`:
 - `PX4_CONNECTION_STRING=udpin://0.0.0.0:14540`
 - `GEOFENCE_CENTER_LAT` and `GEOFENCE_CENTER_LON`
+- optional `PX4_HOME_LAT` and `PX4_HOME_LON`
 - `DEFAULT_TAKEOFF_ALTITUDE_M`
 
-The SITL launcher reads `GEOFENCE_CENTER_LAT` and `GEOFENCE_CENTER_LON` from `.env` and uses them as `PX4_HOME_LAT` and `PX4_HOME_LON`. This keeps live `goto_relative` validation aligned with the server's geofence.
+The SITL launcher reads explicit `PX4_HOME_LAT` and `PX4_HOME_LON` from `.env` when present. If they are absent, it falls back to `GEOFENCE_CENTER_LAT` and `GEOFENCE_CENTER_LON`. For worlds with a nonzero Gazebo spawn pose, keep the geofence center at the desired operator map coordinate and offset `PX4_HOME_*` so the spawned model reports that coordinate through GPS telemetry.
 
 Current repo defaults target the CERN Science Gateway area:
 - `GEOFENCE_CENTER_LAT=46.2331`

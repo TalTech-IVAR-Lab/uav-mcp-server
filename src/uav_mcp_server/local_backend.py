@@ -63,7 +63,7 @@ class LocalSimulationBackend:
     _yaw_deg: float = 0.0
     _pitch_deg: float = 0.0
     _roll_deg: float = 0.0
-    _gimbal_pitch_deg: float = 0.0
+    _gimbal_pitch_deg: float = -30.0
     _gimbal_yaw_deg: float = 0.0
 
     def __post_init__(self) -> None:

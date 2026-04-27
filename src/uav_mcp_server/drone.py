@@ -89,6 +89,9 @@ class MavsdkBackend:
     """Thin adapter that isolates MAVSDK-specific APIs from the rest of the code."""
 
     _FORWARD_FACING_GIMBAL_YAW_DEG = 0.0
+    _GIMBAL_PITCH_MIN_DEG = -90.0
+    _GIMBAL_PITCH_MAX_DEG = 30.0
+    _GIMBAL_PITCH_NEUTRAL_DEG = -30.0
 
     def __init__(self) -> None:
         try:
@@ -99,7 +102,7 @@ class MavsdkBackend:
             ) from exc
 
         self._system = System()
-        self._last_known_gimbal_pitch_deg: float | None = None
+        self._last_known_gimbal_pitch_deg: float | None = self._GIMBAL_PITCH_NEUTRAL_DEG
         self._last_known_gimbal_yaw_deg: float = self._FORWARD_FACING_GIMBAL_YAW_DEG
 
     async def connect(self, connection_string: str) -> None:
@@ -150,7 +153,11 @@ class MavsdkBackend:
         control_gimbal_id = await self._take_primary_gimbal_control(device_gimbal_id)
         try:
             current_pitch_deg = await self._current_gimbal_pitch_deg(device_gimbal_id)
-            target_pitch_deg = self._clamp(current_pitch_deg + delta_deg, -90.0, 30.0)
+            target_pitch_deg = self._clamp(
+                current_pitch_deg + delta_deg,
+                self._GIMBAL_PITCH_MIN_DEG,
+                self._GIMBAL_PITCH_MAX_DEG,
+            )
             await self._system.gimbal.set_angles(
                 control_gimbal_id,
                 0.0,
@@ -344,26 +351,34 @@ class MavsdkBackend:
         raise NotImplementedError("No gimbal control route is available on the active backend.")
 
     async def _current_gimbal_pitch_deg(self, device_gimbal_id: int) -> float:
+        if self._last_known_gimbal_pitch_deg is not None:
+            return self._last_known_gimbal_pitch_deg
+
         try:
             attitude = await self._system.gimbal.get_attitude(device_gimbal_id)
         except Exception:
-            return self._last_known_gimbal_pitch_deg or 0.0
+            return self._last_known_gimbal_pitch_deg_or_neutral()
 
         pitch_deg = getattr(attitude, "pitch_deg", None)
         if pitch_deg is None:
             euler_angle_forward = getattr(attitude, "euler_angle_forward", None)
             pitch_deg = getattr(euler_angle_forward, "pitch_deg", None)
         if pitch_deg is None:
-            pitch_deg = self._last_known_gimbal_pitch_deg or 0.0
+            pitch_deg = self._last_known_gimbal_pitch_deg_or_neutral()
 
         self._last_known_gimbal_pitch_deg = pitch_deg
         return pitch_deg
 
     def current_gimbal_pitch_deg(self) -> float:
-        return self._last_known_gimbal_pitch_deg or 0.0
+        return self._last_known_gimbal_pitch_deg_or_neutral()
 
     def current_gimbal_yaw_deg(self) -> float:
         return self._FORWARD_FACING_GIMBAL_YAW_DEG
+
+    def _last_known_gimbal_pitch_deg_or_neutral(self) -> float:
+        if self._last_known_gimbal_pitch_deg is None:
+            return self._GIMBAL_PITCH_NEUTRAL_DEG
+        return self._last_known_gimbal_pitch_deg
 
     def _clamp(self, value: float, minimum: float, maximum: float) -> float:
         return max(minimum, min(maximum, value))
@@ -580,7 +595,11 @@ class DroneController:
 
         return CommandResult.ok(
             "Gimbal pitch adjustment command accepted.",
-            data={"delta_deg": delta_deg},
+            data={
+                "delta_deg": delta_deg,
+                "gimbal_pitch_deg": self._backend.current_gimbal_pitch_deg(),
+                "gimbal_yaw_deg": self._backend.current_gimbal_yaw_deg(),
+            },
         )
 
     async def gimbal_yaw_relative(self, delta_deg: float) -> CommandResult:
@@ -607,7 +626,11 @@ class DroneController:
 
         return CommandResult.ok(
             "Gimbal yaw adjustment command accepted.",
-            data={"delta_deg": delta_deg},
+            data={
+                "delta_deg": delta_deg,
+                "gimbal_pitch_deg": self._backend.current_gimbal_pitch_deg(),
+                "gimbal_yaw_deg": self._backend.current_gimbal_yaw_deg(),
+            },
         )
 
     async def point_gimbal_at(

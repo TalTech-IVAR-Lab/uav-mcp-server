@@ -3,9 +3,9 @@
   <world name="tum_map">
     <spherical_coordinates>
       <surface_model>EARTH_WGS84</surface_model>
-      <!-- GPS origin = centre of the photogrammetry scan → TUM Stammgelände centre -->
-      <latitude_deg>48.14966</latitude_deg>
-      <longitude_deg>11.56862</longitude_deg>
+      <!-- GPS origin calibrated from live telemetry so the fixed clear-spot spawn maps to 48.14767, 11.56960 -->
+      <latitude_deg>48.14968500457427</latitude_deg>
+      <longitude_deg>11.56549696798252</longitude_deg>
       <!-- Z=0 in the model = lowest mesh point; TUM campus ≈ 519 m AMSL -->
       <elevation>519.0</elevation>
     </spherical_coordinates>
@@ -32,7 +32,7 @@
     </light>
 
     <include>
-      <uri>model://tum_map</uri>
+      <uri>model://tum_campus_lod3</uri>
     </include>
 
     <physics name="default_physics" default="0" type="ode">

@@ -56,8 +56,10 @@ SITL_RUNTIME="$(sitl_model_runtime "$PX4_MODEL")"
 PX4_MAKE_TARGET="$(sitl_make_target "$PX4_MODEL")"
 ROS_SETUP_SCRIPT="${ROS_SETUP_SCRIPT:-/opt/ros/humble/setup.bash}"
 
-export PX4_HOME_LAT="${PX4_HOME_LAT:-$(read_env_value GEOFENCE_CENTER_LAT 46.233326)}"
-export PX4_HOME_LON="${PX4_HOME_LON:-$(read_env_value GEOFENCE_CENTER_LON 6.055164)}"
+default_px4_home_lat="$(read_env_value GEOFENCE_CENTER_LAT 46.233326)"
+default_px4_home_lon="$(read_env_value GEOFENCE_CENTER_LON 6.055164)"
+export PX4_HOME_LAT="${PX4_HOME_LAT:-$(read_env_value PX4_HOME_LAT "$default_px4_home_lat")}"
+export PX4_HOME_LON="${PX4_HOME_LON:-$(read_env_value PX4_HOME_LON "$default_px4_home_lon")}"
 
 if [ -d "$SIM_CLASSIC_MODEL_DIR" ]; then
   export GAZEBO_MODEL_PATH="$SIM_CLASSIC_MODEL_DIR${GAZEBO_MODEL_PATH:+:$GAZEBO_MODEL_PATH}"

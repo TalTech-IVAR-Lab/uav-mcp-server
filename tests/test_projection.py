@@ -106,3 +106,29 @@ def test_pixel_to_world_with_level_camera_and_yaw_projects_in_heading_direction(
 
     assert point.north_m == pytest.approx(0.0, abs=0.2)
     assert point.east_m == pytest.approx(10.0, abs=0.2)
+
+
+def test_pixel_to_world_lower_image_point_projects_to_nearer_ground_footpoint() -> None:
+    camera = CameraParams(
+        width_px=640,
+        height_px=360,
+        hfov_rad=2.0,
+        mount_pitch_deg=-30.0,
+    )
+    pose = DronePose(
+        lat_deg=48.14767,
+        lon_deg=11.56960,
+        absolute_altitude_m=550.0,
+        relative_altitude_m=50.0,
+        home_absolute_altitude_m=500.0,
+        yaw_deg=0.0,
+        pitch_deg=0.0,
+        roll_deg=0.0,
+    )
+
+    center = pixel_to_world(320.0, 180.0, camera, pose)
+    footpoint = pixel_to_world(320.0, 260.0, camera, pose)
+
+    assert center.distance_m == pytest.approx(86.6, abs=0.5)
+    assert footpoint.distance_m == pytest.approx(40.1, abs=0.5)
+    assert footpoint.distance_m < center.distance_m

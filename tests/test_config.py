@@ -9,6 +9,8 @@ def test_settings_defaults() -> None:
     settings = Settings(_env_file=None)
     assert settings.backend_mode == "live"
     assert settings.px4_model == ""
+    assert settings.px4_home_lat is None
+    assert settings.px4_home_lon is None
     assert settings.geofence_center_lat == 59.3949741
     assert settings.geofence_center_lon == 24.6676189
     assert settings.sim_classic_world_name == "taltech_campus"
@@ -24,7 +26,7 @@ def test_settings_defaults() -> None:
     assert settings.assistant_preview_default is True
     assert settings.assistant_bypass_available is True
     assert settings.assistant_mcp_url is None
-    assert settings.manual_control_translation_step_m == 2.0
+    assert settings.manual_control_translation_step_m == 10.0
     assert settings.manual_control_altitude_step_m == 1.5
     assert settings.manual_control_yaw_step_deg == 15.0
     assert settings.manual_control_gimbal_pitch_step_deg == 10.0

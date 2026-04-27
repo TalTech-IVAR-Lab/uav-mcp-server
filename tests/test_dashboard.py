@@ -438,12 +438,12 @@ async def test_dashboard_api_target_crud_and_orbit(dashboard_projection_app) -> 
     assert orbit_resp.json()["success"] is True
     assert backend.orbit_calls
     orbit_data = orbit_resp.json()["data"]
-    assert orbit_data["framing"]["roi"]["attempted"] is True
-    assert orbit_data["framing"]["resolved_yaw_behavior"] == "hold_initial_heading"
+    assert orbit_data["framing"]["roi"]["attempted"] is False
+    assert orbit_data["framing"]["framing_mode"] == "airframe_center"
+    assert orbit_data["framing"]["resolved_yaw_behavior"] == "hold_front_to_circle_center"
     assert orbit_data["framing"]["target_absolute_altitude_m"] == pytest.approx(140.0)
-    assert backend.orbit_calls[-1][-1] == "hold_initial_heading"
-    assert backend.roi_calls
-    assert backend.roi_calls[-1][2] == pytest.approx(140.0)
+    assert backend.orbit_calls[-1][-1] == "hold_front_to_circle_center"
+    assert not backend.roi_calls
 
     clear_resp = client.delete("/dashboard/api/target")
     assert clear_resp.status_code == 200
@@ -647,40 +647,48 @@ async def test_dashboard_command_creates_event(dashboard_app) -> None:
 
 @pytest.mark.asyncio
 async def test_dashboard_project_pixel_returns_world_projection(dashboard_projection_app) -> None:
-    from starlette.testclient import TestClient
+    import httpx
 
     app, _, services = dashboard_projection_app
-    client = TestClient(app, raise_server_exceptions=False)
 
     await _set_airborne_snapshot(services)
 
-    resp = client.post(
-        "/dashboard/api/project_pixel",
-        json={
-            "u": services.settings.camera_width_px / 2,
-            "v": services.settings.camera_height_px / 2,
-        },
-    )
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post(
+            "/dashboard/api/project_pixel",
+            json={
+                "u": services.settings.camera_width_px / 2,
+                "v": services.settings.camera_height_px / 2,
+            },
+        )
     data = resp.json()
     assert resp.status_code == 200
     assert data["distance_m"] == pytest.approx(0.0, abs=0.2)
     assert data["absolute_altitude_m"] == pytest.approx(140.0)
+    assert data["selection_anchor"] == "pixel"
+    assert data["pixel"]["u"] == pytest.approx(services.settings.camera_width_px / 2)
+    assert data["pixel"]["v"] == pytest.approx(services.settings.camera_height_px / 2)
+    assert data["camera"]["effective"]["mount_pitch_deg"] == pytest.approx(-90.0)
+    assert data["gimbal"]["tracked_pitch_deg"] == pytest.approx(0.0)
+    assert data["pose"]["relative_altitude_m"] == pytest.approx(10.0)
 
 
 @pytest.mark.asyncio
 async def test_dashboard_project_pixel_rejects_missing_pose(dashboard_projection_app) -> None:
-    from starlette.testclient import TestClient
+    import httpx
 
     app, _, services = dashboard_projection_app
-    client = TestClient(app, raise_server_exceptions=False)
 
-    resp = client.post(
-        "/dashboard/api/project_pixel",
-        json={
-            "u": services.settings.camera_width_px / 2,
-            "v": services.settings.camera_height_px / 2,
-        },
-    )
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post(
+            "/dashboard/api/project_pixel",
+            json={
+                "u": services.settings.camera_width_px / 2,
+                "v": services.settings.camera_height_px / 2,
+            },
+        )
     assert resp.status_code == 409
     assert resp.json()["error_code"] == ErrorCode.PREFLIGHT_FAILED.value
 
@@ -725,6 +733,7 @@ async def test_dashboard_project_pixel_ignores_airframe_tilt_for_stabilized_came
             json={
                 "u": services.settings.camera_width_px / 2,
                 "v": services.settings.camera_height_px / 2,
+                "selection_anchor": "reticle_center",
             },
         )
 
@@ -732,6 +741,9 @@ async def test_dashboard_project_pixel_ignores_airframe_tilt_for_stabilized_came
     assert resp.status_code == 200
     assert data["north_m"] == pytest.approx(0.0, abs=0.5)
     assert data["east_m"] == pytest.approx(10.0, abs=0.5)
+    assert data["selection_anchor"] == "reticle_center"
+    assert data["pose"]["pitch_deg"] == pytest.approx(0.0)
+    assert data["pose"]["roll_deg"] == pytest.approx(0.0)
 
 
 @pytest.mark.asyncio

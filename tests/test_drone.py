@@ -214,6 +214,8 @@ async def test_controller_adjusts_gimbal_pitch_when_supported() -> None:
 
     assert result.success is True
     assert backend.gimbal_pitch_calls[-1] == -10.0
+    assert result.data["gimbal_pitch_deg"] == pytest.approx(-10.0)
+    assert result.data["gimbal_yaw_deg"] == pytest.approx(0.0)
 
     await controller.telemetry_manager.stop()
 
@@ -294,6 +296,46 @@ async def test_mavsdk_backend_falls_back_to_manager_gimbal_id_for_control(monkey
     assert fake_gimbal.set_angles_calls[0][3] == pytest.approx(0.0)
     assert backend.current_gimbal_yaw_deg() == pytest.approx(0.0)
     assert fake_gimbal.release_control_calls == [0]
+
+
+@pytest.mark.asyncio
+async def test_mavsdk_backend_starts_gimbal_pitch_from_neutral_when_attitude_unavailable(
+    monkeypatch,
+) -> None:
+    _install_fake_mavsdk_gimbal(monkeypatch)
+    backend = object.__new__(MavsdkBackend)
+    fake_gimbal = FakeMavsdkGimbal()
+
+    async def get_attitude_failure(gimbal_id: int) -> SimpleNamespace:
+        raise RuntimeError(f"attitude unavailable for {gimbal_id}")
+
+    fake_gimbal.get_attitude = get_attitude_failure
+    backend._system = SimpleNamespace(gimbal=fake_gimbal)
+    backend._last_known_gimbal_pitch_deg = None
+    backend._last_known_gimbal_yaw_deg = 0.0
+    backend._first_gimbal_id = lambda: asyncio.sleep(0, result=1)
+
+    await backend.gimbal_pitch_relative(10.0)
+
+    assert fake_gimbal.set_angles_calls[0][2] == pytest.approx(-20.0)
+    assert backend.current_gimbal_pitch_deg() == pytest.approx(-20.0)
+
+
+@pytest.mark.asyncio
+async def test_mavsdk_backend_uses_tracked_gimbal_pitch_before_live_attitude(
+    monkeypatch,
+) -> None:
+    _install_fake_mavsdk_gimbal(monkeypatch)
+    backend = object.__new__(MavsdkBackend)
+    fake_gimbal = FakeMavsdkGimbal()
+    backend._system = SimpleNamespace(gimbal=fake_gimbal)
+    backend._last_known_gimbal_pitch_deg = -30.0
+    backend._last_known_gimbal_yaw_deg = 0.0
+    backend._first_gimbal_id = lambda: asyncio.sleep(0, result=1)
+
+    await backend.gimbal_pitch_relative(10.0)
+
+    assert fake_gimbal.set_angles_calls[0][2] == pytest.approx(-20.0)
 
 
 @pytest.mark.asyncio

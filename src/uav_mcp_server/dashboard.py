@@ -52,6 +52,7 @@ DASHBOARD_COMMAND_ORDER = (
     "rtl",
     "land",
     "goto_relative",
+    "orbit",
     "get_status",
     "get_telemetry",
 )
@@ -95,6 +96,11 @@ DASHBOARD_COMMAND_METADATA: dict[str, dict[str, str]] = {
     "goto_relative": {
         "label": "Goto",
         "hint": "Move by a bounded relative north/east offset.",
+        "tone": "neutral",
+    },
+    "orbit": {
+        "label": "Orbit",
+        "hint": "Orbit the active target when one is selected.",
         "tone": "neutral",
     },
     "get_status": {
