@@ -570,11 +570,12 @@ def register_dashboard_routes(mcp: Any, state: DashboardState) -> None:
 
         if state.assistant_plan is not None:
             result = await state.assistant_plan({**body, "selected_target": state.selected_target})
+            event_target = result.get("selected_target") or state.selected_target
             event = _event_from_plan(
                 str(result.get("operator_text") or body.get("text") or ""),
                 str(result.get("assistant_text") or ""),
                 list(result.get("proposed_calls") or []),
-                state.selected_target,
+                event_target if isinstance(event_target, dict) else None,
             )
             if result.get("fallback_reason") is not None:
                 event.data = {
@@ -623,12 +624,13 @@ def register_dashboard_routes(mcp: Any, state: DashboardState) -> None:
 
         if state.assistant_execute is not None:
             result = await state.assistant_execute({**body, "selected_target": state.selected_target})
+            event_target = result.get("selected_target") or state.selected_target
             await state.event_log.append(
                 _event_from_execute(
                     str(result.get("operator_text") or body.get("text") or ""),
                     str(result.get("assistant_text") or ""),
                     list(result.get("executed_calls") or []),
-                    state.selected_target,
+                    event_target if isinstance(event_target, dict) else None,
                 )
             )
             return JSONResponse(result)
@@ -835,7 +837,7 @@ def register_dashboard_routes(mcp: Any, state: DashboardState) -> None:
         try:
             radius_m = float(body.get("radius_m", _config_value(config, "default_orbit_radius_m", 12.0)))
             velocity_m_s = float(body.get("velocity_m_s", min(float(_config_value(config, "default_mission_speed_m_s", 3.0)), 3.0)))
-            yaw_behavior = OrbitYawBehavior(
+            yaw_behavior = OrbitYawBehavior.parse(
                 body.get("yaw_behavior", OrbitYawBehavior.HOLD_FRONT_TO_CIRCLE_CENTER.value)
             )
         except (TypeError, ValueError) as exc:

@@ -7,7 +7,10 @@ from uav_mcp_server.assistant import (
     AssistantTarget,
     AssistantToolCall,
     DashboardAssistant,
+    _GeminiVisionTarget,
+    _camera_target_from_gemini,
     _extract_json_payload,
+    needs_camera_target_resolution,
 )
 from uav_mcp_server.config import Settings
 from uav_mcp_server.types import DroneState, TelemetrySnapshot
@@ -42,6 +45,48 @@ def test_extract_json_payload_accepts_fenced_json() -> None:
 
     assert payload["assistant_text"] == "ok"
     assert payload["calls"] == []
+
+
+def test_camera_target_resolution_only_triggers_for_visual_target_commands() -> None:
+    assert needs_camera_target_resolution("orbit around the small building near the middle")
+    assert needs_camera_target_resolution("approach the object behind the building")
+    assert not needs_camera_target_resolution("take off to 10 meters")
+    assert not needs_camera_target_resolution(
+        "orbit selected target",
+        selected_target=AssistantTarget(latitude_deg=46.0, longitude_deg=6.0),
+    )
+
+
+def test_camera_target_from_gemini_uses_bbox_footpoint_when_pixel_missing() -> None:
+    target = _camera_target_from_gemini(
+        _GeminiVisionTarget(
+            found=True,
+            label="small building",
+            confidence=0.82,
+            bbox_xyxy=[100.0, 40.0, 220.0, 160.0],
+            selection_anchor="ground_footpoint",
+        ),
+        640,
+        360,
+    )
+
+    assert target.found is True
+    assert target.u == pytest.approx(160.0)
+    assert target.v == pytest.approx(160.0)
+    assert target.label == "small building"
+
+
+@pytest.mark.asyncio
+async def test_camera_target_locator_rejects_missing_api_key() -> None:
+    assistant = DashboardAssistant(Settings(_env_file=None, gemini_api_key=None))
+
+    with pytest.raises(RuntimeError, match="Gemini API key"):
+        await assistant.locate_camera_target(
+            "orbit around the building in the camera",
+            image_jpeg=b"jpeg",
+            image_width_px=640,
+            image_height_px=360,
+        )
 
 
 def _grounding() -> AssistantGroundingContext:

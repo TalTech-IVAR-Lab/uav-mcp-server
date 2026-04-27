@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import os
 import re
@@ -24,6 +25,7 @@ from uav_mcp_server.assistant import (
     DashboardAssistant,
     build_command_manifest,
     fetch_mcp_grounding,
+    needs_camera_target_resolution,
     _prompt_text,
     _resource_dict,
     _resource_text,
@@ -1015,6 +1017,7 @@ def create_server(
             "assistant_model": settings.assistant_model,
             "assistant_preview_default": settings.assistant_preview_default,
             "assistant_bypass_available": settings.assistant_bypass_available,
+            "assistant_vision_enabled": settings.assistant_vision_enabled,
             "manual_control": {
                 "translation_step_m": settings.manual_control_translation_step_m,
                 "altitude_step_m": settings.manual_control_altitude_step_m,
@@ -1095,7 +1098,7 @@ def create_server(
             if command_name == "orbit" and isinstance(params.get("yaw_behavior"), str):
                 params = {
                     **params,
-                    "yaw_behavior": OrbitYawBehavior(params["yaw_behavior"]),
+                    "yaw_behavior": OrbitYawBehavior.parse(params["yaw_behavior"]),
                 }
             result = await handler(**params)
         except TypeError as exc:
@@ -1130,11 +1133,13 @@ def create_server(
             "assistant_model": settings.assistant_model,
             "assistant_preview_default": settings.assistant_preview_default,
             "assistant_bypass_available": settings.assistant_bypass_available,
+            "assistant_vision_enabled": settings.assistant_vision_enabled,
             "assistant": {
                 "enabled": settings.assistant_enabled,
                 "default_mode": "gemini" if assistant.api_available else "fallback",
                 "preview_default": settings.assistant_preview_default,
                 "bypass_available": settings.assistant_bypass_available,
+                "vision_enabled": settings.assistant_vision_enabled,
                 "fallback_available": True,
             },
             "camera": {
@@ -1211,7 +1216,7 @@ def create_server(
                     min(resolved_services.settings.default_mission_speed_m_s, 3.0),
                 )
             )
-            requested_yaw_behavior = OrbitYawBehavior(
+            requested_yaw_behavior = OrbitYawBehavior.parse(
                 params.get(
                     "yaw_behavior",
                     OrbitYawBehavior.HOLD_FRONT_TO_CIRCLE_CENTER.value,
@@ -1462,6 +1467,68 @@ def create_server(
         }
         return result
 
+    async def _resolve_assistant_camera_target(
+        operator_text: str,
+        selected_target: AssistantTarget | None,
+    ) -> tuple[AssistantTarget | None, dict[str, Any] | None, str | None]:
+        if not needs_camera_target_resolution(operator_text, selected_target=selected_target):
+            return selected_target, None, None
+
+        frame = camera_streamer.get_frame()
+        if frame is None:
+            status = camera_streamer.status().to_dict()
+            reason = status.get("reason") or "No camera frame is available for assistant vision."
+            return selected_target, {"status": status}, reason
+
+        try:
+            visual_target = await asyncio.wait_for(
+                assistant.locate_camera_target(
+                    operator_text,
+                    image_jpeg=frame,
+                    image_width_px=camera_params.width_px,
+                    image_height_px=camera_params.height_px,
+                ),
+                timeout=8.0,
+            )
+        except Exception as exc:
+            return selected_target, None, str(exc)
+
+        vision_dict = visual_target.model_dump(mode="json")
+        if not visual_target.found or visual_target.u is None or visual_target.v is None:
+            reason = visual_target.rationale or "Assistant vision could not identify a unique target."
+            return selected_target, {"vision": vision_dict}, reason
+
+        try:
+            projection = await _dashboard_project_pixel(
+                {
+                    "u": visual_target.u,
+                    "v": visual_target.v,
+                    "selection_anchor": visual_target.selection_anchor,
+                }
+            )
+        except (ValueError, RuntimeError) as exc:
+            return selected_target, {"vision": vision_dict}, str(exc)
+
+        resolved_target = AssistantTarget(
+            source="camera_vision",
+            latitude_deg=float(projection["latitude_deg"]),
+            longitude_deg=float(projection["longitude_deg"]),
+            absolute_altitude_m=float(projection["absolute_altitude_m"]),
+            north_m=float(projection["north_m"]),
+            east_m=float(projection["east_m"]),
+            distance_m=float(projection["distance_m"]),
+            label=visual_target.label or "Camera target",
+        )
+        return (
+            resolved_target,
+            {
+                "vision": vision_dict,
+                "projection": projection,
+                "target": resolved_target.model_dump(mode="json"),
+            },
+            None,
+        )
+
     async def _dashboard_assistant_plan(params: dict[str, Any]) -> dict[str, Any]:
         operator_text = str(params.get("text", "")).strip()
         selected_target = None
@@ -1473,6 +1540,12 @@ def create_server(
                 
         started_at = monotonic()
         telemetry_before = current_snapshot()
+        visual_resolution: dict[str, Any] | None = None
+        visual_reason: str | None = None
+        selected_target, visual_resolution, visual_reason = await _resolve_assistant_camera_target(
+            operator_text,
+            selected_target,
+        )
         
         plan = await assistant.plan(
             operator_text,
@@ -1497,7 +1570,20 @@ def create_server(
             ],
             "selected_target": selected_target.model_dump(mode="json") if selected_target else None,
             "fallback_reason": plan.fallback_reason,
+            "visual_target": visual_resolution,
         }
+        if visual_reason is not None:
+            result_dict["visual_target_error"] = visual_reason
+            if not result_dict["fallback_reason"]:
+                result_dict["fallback_reason"] = visual_reason
+            if not plan.proposed_calls and needs_camera_target_resolution(
+                operator_text,
+                selected_target=selected_target,
+            ):
+                result_dict["assistant_text"] = (
+                    "I could not resolve the requested camera target: "
+                    f"{visual_reason}"
+                )
         
         observability.record_event(
             ObservabilityEvent(
@@ -1522,11 +1608,21 @@ def create_server(
         assistant_text = str(params.get("assistant_text") or "Executing proposed calls.")
         source = str(params.get("source") or ("gemini" if assistant.api_available else "fallback"))
         proposed_calls = params.get("proposed_calls")
+        planned_selected_target = (
+            params.get("selected_target") if isinstance(params.get("selected_target"), dict) else None
+        )
+        planned_visual_target = None
         if not isinstance(proposed_calls, list) or not proposed_calls:
             plan_result = await _dashboard_assistant_plan(params)
             assistant_text = str(plan_result.get("assistant_text") or assistant_text)
             source = str(plan_result.get("source") or source)
             proposed_calls = list(plan_result.get("proposed_calls") or [])
+            planned_selected_target = (
+                plan_result.get("selected_target")
+                if isinstance(plan_result.get("selected_target"), dict)
+                else planned_selected_target
+            )
+            planned_visual_target = plan_result.get("visual_target")
         executed_calls: list[dict[str, Any]] = []
         overall_success = True
         for raw_call in proposed_calls[:4]:
@@ -1558,6 +1654,8 @@ def create_server(
             "assistant_text": assistant_text,
             "executed_calls": executed_calls,
             "success": overall_success,
+            "selected_target": planned_selected_target,
+            "visual_target": planned_visual_target,
         }
 
     async def _dashboard_target_orbit(params: dict[str, Any]) -> CommandResult:
@@ -1593,7 +1691,7 @@ def create_server(
             return violation
 
         try:
-            requested_yaw_behavior = OrbitYawBehavior(
+            requested_yaw_behavior = OrbitYawBehavior.parse(
                 params.get(
                     "yaw_behavior",
                     OrbitYawBehavior.HOLD_FRONT_TO_CIRCLE_CENTER.value,
@@ -1642,16 +1740,13 @@ def create_server(
         manual_rate_violation = _check_manual_rate()
         if manual_rate_violation is not None:
             return manual_rate_violation
-        violation = validate(
+        return await _observed_command(
             "goto_relative",
-            enforce_rate_limit=False,
-            north_m=north_m,
-            east_m=east_m,
-            altitude_m=altitude_m,
+            params,
+            lambda: resolved_services.controller.goto_relative(north_m, east_m, altitude_m),
+            source="manual",
+            validate_params={"north_m": north_m, "east_m": east_m, "altitude_m": altitude_m, "enforce_rate_limit": False},
         )
-        if violation is not None:
-            return violation
-        return await resolved_services.controller.goto_relative(north_m, east_m, altitude_m)
 
     async def _dashboard_manual_yaw(params: dict[str, Any]) -> CommandResult:
         try:
@@ -1664,10 +1759,13 @@ def create_server(
         manual_rate_violation = _check_manual_rate()
         if manual_rate_violation is not None:
             return manual_rate_violation
-        violation = validate("yaw_relative", enforce_rate_limit=False, delta_deg=delta_deg)
-        if violation is not None:
-            return violation
-        return await resolved_services.controller.yaw_relative(delta_deg)
+        return await _observed_command(
+            "yaw_relative",
+            params,
+            lambda: resolved_services.controller.yaw_relative(delta_deg),
+            source="manual",
+            validate_params={"delta_deg": delta_deg, "enforce_rate_limit": False},
+        )
 
     async def _dashboard_manual_gimbal_pitch(params: dict[str, Any]) -> CommandResult:
         try:
@@ -1680,12 +1778,18 @@ def create_server(
         manual_rate_violation = _check_manual_rate()
         if manual_rate_violation is not None:
             return manual_rate_violation
-        violation = validate("gimbal_pitch_relative", enforce_rate_limit=False, delta_deg=delta_deg)
-        if violation is not None:
-            return violation
-        result = await resolved_services.controller.gimbal_pitch_relative(delta_deg)
-        _record_gimbal_result(result, source="manual")
-        return result
+        async def _gimbal_runner() -> CommandResult:
+            result = await resolved_services.controller.gimbal_pitch_relative(delta_deg)
+            _record_gimbal_result(result, source="manual")
+            return result
+
+        return await _observed_command(
+            "gimbal_pitch_relative",
+            params,
+            _gimbal_runner,
+            source="manual",
+            validate_params={"delta_deg": delta_deg, "enforce_rate_limit": False},
+        )
 
     dashboard_state = DashboardState(
         get_snapshot=current_snapshot,

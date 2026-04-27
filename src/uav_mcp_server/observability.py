@@ -260,6 +260,8 @@ class ObservabilityStore:
         timestamps = []
         throughputSuccess = []
         throughputError = []
+        throughputManualSuccess = []
+        throughputManualError = []
         latencyP95 = []
         latencyMean = []
         
@@ -269,12 +271,18 @@ class ObservabilityStore:
             timestamps.append(b_time.isoformat())
             
             b_events = buckets_data.get(i, [])
-            success_count = sum(1 for e in b_events if e.get("action") == "command" and e.get("success") is True)
-            error_count = sum(1 for e in b_events if e.get("action") == "command" and e.get("success") is False)
+            success_count = sum(1 for e in b_events if e.get("action") == "command" and e.get("source") != "manual" and e.get("success") is True)
+            error_count = sum(1 for e in b_events if e.get("action") == "command" and e.get("source") != "manual" and e.get("success") is False)
             
             throughputSuccess.append(success_count)
             throughputError.append(error_count)
-            
+
+            manual_success_count = sum(1 for e in b_events if e.get("action") == "command" and e.get("source") == "manual" and e.get("success") is True)
+            manual_error_count = sum(1 for e in b_events if e.get("action") == "command" and e.get("source") == "manual" and e.get("success") is False)
+
+            throughputManualSuccess.append(manual_success_count)
+            throughputManualError.append(manual_error_count)
+
             lats = [float(e["duration_ms"]) for e in b_events if e.get("action") == "command" and isinstance(e.get("duration_ms"), (int, float))]
             if lats:
                 stats = latency_stats(lats)
@@ -288,6 +296,8 @@ class ObservabilityStore:
             "timestamps": timestamps,
             "throughputSuccess": throughputSuccess,
             "throughputError": throughputError,
+            "throughputManualSuccess": throughputManualSuccess,
+            "throughputManualError": throughputManualError,
             "latencyP95": latencyP95,
             "latencyMean": latencyMean,
         }

@@ -25,6 +25,7 @@ def test_settings_defaults() -> None:
     assert settings.assistant_model == "gemini-2.5-flash"
     assert settings.assistant_preview_default is True
     assert settings.assistant_bypass_available is True
+    assert settings.assistant_vision_enabled is True
     assert settings.assistant_mcp_url is None
     assert settings.manual_control_translation_step_m == 10.0
     assert settings.manual_control_altitude_step_m == 1.5

@@ -94,6 +94,7 @@ class Settings(BaseSettings):
     assistant_temperature: float = Field(default=0.1, ge=0.0, le=2.0)
     assistant_preview_default: bool = Field(default=True)
     assistant_bypass_available: bool = Field(default=True)
+    assistant_vision_enabled: bool = Field(default=True)
     assistant_mcp_url: str | None = Field(default=None)
     gemini_api_key: str | None = Field(default=None)
     manual_control_translation_step_m: float = Field(default=10.0, gt=0)

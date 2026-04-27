@@ -159,7 +159,8 @@ Review the important values in `.env`:
 - `GEOFENCE_CENTER_LON`
 - `DEFAULT_TAKEOFF_ALTITUDE_M`
 - `CAMERA_ENABLED`
-- `GEMINI_API_KEY` if you want live AI planning instead of fallback parsing
+- `ASSISTANT_VISION_ENABLED`
+- `GEMINI_API_KEY` if you want live AI planning and camera-frame target localization instead of fallback parsing
 
 If PX4 is not next to this repository, set:
 

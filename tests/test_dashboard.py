@@ -197,6 +197,7 @@ async def test_dashboard_api_config_exposes_map_and_camera_settings(dashboard_ap
     assert data["geofence_center_lat"] == services.settings.geofence_center_lat
     assert data["camera"]["params"]["width_px"] == services.settings.camera_width_px
     assert data["camera"]["stabilized"] == services.settings.camera_stabilized
+    assert data["assistant"]["vision_enabled"] is True
     assert data["manual_control"]["supports_translation"] is True
     assert data["manual_control"]["supports_yaw"] is True
     assert data["monitoring"]["runtime_health_url"] == "/dashboard/api/runtime-health"
@@ -358,6 +359,85 @@ async def test_dashboard_api_assistant_plan_auto_arms_takeoff(dashboard_app) -> 
     assert data["source"] == "fallback"
     assert data["requires_confirmation"] is True
     assert [call["command"] for call in data["proposed_calls"]] == ["guided_takeoff"]
+
+
+@pytest.mark.asyncio
+async def test_dashboard_api_assistant_plan_resolves_camera_target_for_orbit(monkeypatch) -> None:
+    import httpx
+
+    from uav_mcp_server.assistant import AssistantCameraTarget, DashboardAssistant
+
+    class FakeCameraStreamer:
+        boundary = "frame"
+
+        def __init__(self, **kwargs) -> None:
+            del kwargs
+
+        def get_frame(self) -> bytes:
+            return b"\xff\xd8\xff\xd9"
+
+        def is_available(self) -> bool:
+            return True
+
+        def status(self) -> CameraStatus:
+            return CameraStatus(
+                enabled=True,
+                available=True,
+                topic="/usb_cam/image_raw",
+                fps=15,
+            )
+
+        async def stream_mjpeg(self):
+            yield b""
+
+    async def fake_locate_camera_target(self, operator_text: str, **kwargs):
+        del self
+        assert "small building" in operator_text
+        assert kwargs["image_width_px"] > 0
+        assert kwargs["image_jpeg"] == b"\xff\xd8\xff\xd9"
+        return AssistantCameraTarget(
+            found=True,
+            label="small building",
+            confidence=0.91,
+            u=320.0,
+            v=240.0,
+            selection_anchor="ground_footpoint",
+            rationale="The small building is near the frame center.",
+        )
+
+    def fail_text_gemini(self, *args, **kwargs):
+        del self, args, kwargs
+        raise RuntimeError("text planner unavailable")
+
+    monkeypatch.setattr(server_module, "CameraStreamer", FakeCameraStreamer)
+    monkeypatch.setattr(DashboardAssistant, "locate_camera_target", fake_locate_camera_target)
+    monkeypatch.setattr(DashboardAssistant, "_plan_with_gemini", fail_text_gemini)
+
+    settings = Settings(
+        _env_file=None,
+        gemini_api_key="test-key",
+        camera_mount_pitch_deg=-90.0,
+    )
+    server, _, services = _make_server_and_backend(settings=settings)
+    await _set_airborne_snapshot(services)
+
+    transport = httpx.ASGITransport(app=server.streamable_http_app())
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post(
+            "/dashboard/api/assistant/plan",
+            json={"text": "orbit around the small building near the middle of the camera"},
+        )
+
+    data = resp.json()
+    assert resp.status_code == 200
+    assert data["selected_target"]["source"] == "camera_vision"
+    assert data["selected_target"]["label"] == "small building"
+    assert data["visual_target"]["vision"]["confidence"] == pytest.approx(0.91)
+    assert data["visual_target"]["projection"]["selection_anchor"] == "ground_footpoint"
+    assert [call["command"] for call in data["proposed_calls"]] == ["orbit"]
+    assert data["proposed_calls"][0]["body"]["latitude_deg"] == pytest.approx(
+        data["selected_target"]["latitude_deg"]
+    )
 
 
 @pytest.mark.asyncio

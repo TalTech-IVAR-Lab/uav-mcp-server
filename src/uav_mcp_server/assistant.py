@@ -49,6 +49,17 @@ class AssistantTarget(BaseModel):
     label: str | None = None
 
 
+class AssistantCameraTarget(BaseModel):
+    found: bool
+    label: str | None = None
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    u: float | None = None
+    v: float | None = None
+    bbox_xyxy: list[float] | None = None
+    selection_anchor: str = "ground_footpoint"
+    rationale: str = ""
+
+
 class AssistantPlan(BaseModel):
     source: str
     operator_text: str
@@ -61,6 +72,17 @@ class AssistantPlan(BaseModel):
 class _GeminiPlan(BaseModel):
     assistant_text: str
     calls: list[AssistantToolCall] = Field(default_factory=list)
+
+
+class _GeminiVisionTarget(BaseModel):
+    found: bool = False
+    label: str | None = None
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    u: float | None = None
+    v: float | None = None
+    bbox_xyxy: list[float] | None = None
+    selection_anchor: str | None = None
+    rationale: str = ""
 
 
 class AssistantGroundingContext(BaseModel):
@@ -93,6 +115,32 @@ def operator_prompt_text() -> str:
         "Prefer the smallest safe action sequence. For state-changing actions, summarize what will happen plainly. "
         "If the request is ambiguous or unsupported, return no tool calls and explain the gap briefly."
     )
+
+
+_CAMERA_TARGET_ACTION_RE = re.compile(
+    r"\b(orbit|circle|approach|inspect|look at|go to|goto|track|follow)\b",
+    re.IGNORECASE,
+)
+_CAMERA_TARGET_CUE_RE = re.compile(
+    r"\b("
+    r"camera|image|video|feed|frame|screen|reticle|middle|center|centre|left|right|top|"
+    r"bottom|front|behind|near|visible|building|object|target|car|vehicle|person|tree"
+    r")\b",
+    re.IGNORECASE,
+)
+
+
+def needs_camera_target_resolution(
+    operator_text: str,
+    *,
+    selected_target: AssistantTarget | None = None,
+) -> bool:
+    if selected_target is not None:
+        return False
+    normalized = operator_text.strip()
+    if not normalized:
+        return False
+    return bool(_CAMERA_TARGET_ACTION_RE.search(normalized) and _CAMERA_TARGET_CUE_RE.search(normalized))
 
 
 def _normalize_calls(calls: list[AssistantToolCall]) -> list[AssistantToolCall]:
@@ -338,6 +386,99 @@ class DashboardAssistant:
             fallback.fallback_reason = fallback_reason
         return fallback
 
+    async def locate_camera_target(
+        self,
+        operator_text: str,
+        *,
+        image_jpeg: bytes,
+        image_width_px: int,
+        image_height_px: int,
+    ) -> AssistantCameraTarget:
+        if not self.enabled:
+            raise RuntimeError("Assistant is disabled; camera target analysis is unavailable.")
+        if not self._settings.assistant_vision_enabled:
+            raise RuntimeError("Assistant vision is disabled in settings.")
+        if not self.api_available:
+            raise RuntimeError("Gemini API key is not configured; camera target analysis is unavailable.")
+        return await self._locate_camera_target_with_gemini(
+            operator_text,
+            image_jpeg=image_jpeg,
+            image_width_px=image_width_px,
+            image_height_px=image_height_px,
+        )
+
+    async def _locate_camera_target_with_gemini(
+        self,
+        operator_text: str,
+        *,
+        image_jpeg: bytes,
+        image_width_px: int,
+        image_height_px: int,
+    ) -> AssistantCameraTarget:
+        import asyncio
+
+        return await asyncio.to_thread(
+            self._locate_camera_target_with_gemini_sync,
+            operator_text,
+            image_jpeg=image_jpeg,
+            image_width_px=image_width_px,
+            image_height_px=image_height_px,
+        )
+
+    def _locate_camera_target_with_gemini_sync(
+        self,
+        operator_text: str,
+        *,
+        image_jpeg: bytes,
+        image_width_px: int,
+        image_height_px: int,
+    ) -> AssistantCameraTarget:
+        from google import genai
+        from google.genai import types
+
+        client = genai.Client(api_key=self._settings.gemini_api_key or os.getenv("GEMINI_API_KEY"))
+        prompt_payload = {
+            "task": "Locate the single visual target in the current drone camera frame.",
+            "operator_request": operator_text,
+            "image_width_px": image_width_px,
+            "image_height_px": image_height_px,
+            "instructions": [
+                "Return only JSON.",
+                "Use pixel coordinates in the original image coordinate system.",
+                "If the target is a ground object or building, return the bottom-center footpoint of the visible target, not its visual centroid.",
+                "If the operator refers to an object behind or near another object, choose the most likely visible target satisfying that spatial relation.",
+                "If the target is not visible or ambiguous, set found=false and do not guess.",
+            ],
+            "required_json_shape": {
+                "found": "boolean",
+                "label": "short target label or null",
+                "confidence": "0.0 to 1.0",
+                "u": "target pixel x coordinate, null if not found",
+                "v": "target pixel y coordinate, null if not found",
+                "bbox_xyxy": "[left, top, right, bottom] in pixels, null if unavailable",
+                "selection_anchor": "ground_footpoint, object_center, or clicked_pixel",
+                "rationale": "one short sentence",
+            },
+        }
+        image_part = _gemini_image_part(types, image_jpeg, "image/jpeg")
+        response = client.models.generate_content(
+            model=self._settings.assistant_model,
+            contents=[json.dumps(prompt_payload, ensure_ascii=True), image_part],
+            config=types.GenerateContentConfig(
+                system_instruction=(
+                    "You are a precise UAV visual target localizer. You do not command the UAV; "
+                    "you only identify the requested target pixel for downstream calibrated projection."
+                ),
+                temperature=0.0,
+                response_mime_type="application/json",
+            ),
+        )
+        text = getattr(response, "text", None)
+        if not text:
+            raise RuntimeError("Gemini returned an empty camera target response.")
+        raw = _GeminiVisionTarget.model_validate(_extract_json_payload(text))
+        return _camera_target_from_gemini(raw, image_width_px, image_height_px)
+
     def _plan_with_gemini(
         self,
         operator_text: str,
@@ -400,6 +541,59 @@ def _extract_json_payload(text: str) -> dict[str, Any]:
         stripped = re.sub(r"^```(?:json)?\s*", "", stripped)
         stripped = re.sub(r"\s*```$", "", stripped)
     return json.loads(stripped)
+
+
+def _gemini_image_part(types_module: Any, image_bytes: bytes, mime_type: str) -> Any:
+    part_type = getattr(types_module, "Part")
+    if hasattr(part_type, "from_bytes"):
+        return part_type.from_bytes(data=image_bytes, mime_type=mime_type)
+    blob_type = getattr(types_module, "Blob")
+    return part_type(inline_data=blob_type(mime_type=mime_type, data=image_bytes))
+
+
+def _camera_target_from_gemini(
+    raw: _GeminiVisionTarget,
+    image_width_px: int,
+    image_height_px: int,
+) -> AssistantCameraTarget:
+    if not raw.found:
+        return AssistantCameraTarget(
+            found=False,
+            label=raw.label,
+            confidence=raw.confidence,
+            rationale=raw.rationale,
+        )
+
+    u = raw.u
+    v = raw.v
+    anchor = raw.selection_anchor or "ground_footpoint"
+    if raw.bbox_xyxy is not None and len(raw.bbox_xyxy) == 4:
+        left, top, right, bottom = raw.bbox_xyxy
+        if u is None:
+            u = (left + right) / 2.0
+        if v is None:
+            v = bottom if anchor == "ground_footpoint" else (top + bottom) / 2.0
+
+    if u is None or v is None:
+        return AssistantCameraTarget(
+            found=False,
+            label=raw.label,
+            confidence=raw.confidence,
+            rationale="Vision model did not return usable pixel coordinates.",
+        )
+
+    clamped_u = max(0.0, min(float(image_width_px), float(u)))
+    clamped_v = max(0.0, min(float(image_height_px), float(v)))
+    return AssistantCameraTarget(
+        found=True,
+        label=raw.label,
+        confidence=raw.confidence,
+        u=clamped_u,
+        v=clamped_v,
+        bbox_xyxy=raw.bbox_xyxy,
+        selection_anchor=anchor,
+        rationale=raw.rationale,
+    )
 
 
 def _resource_payload(resource: Any) -> Any:

@@ -1755,6 +1755,10 @@ DASHBOARD_HTML = """\
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
+    if (result.selected_target) {
+      appState.mapTarget = result.selected_target;
+      updateMapTargetMarker(appState.mapTarget);
+    }
     if (Array.isArray(result.executed_calls) && result.executed_calls.length) {
       result.executed_calls.forEach(function(call) {
         if (call && call.data && call.data.state) updateTelemetry(call.data);

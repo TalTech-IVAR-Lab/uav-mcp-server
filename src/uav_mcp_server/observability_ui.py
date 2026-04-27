@@ -243,7 +243,7 @@ OBSERVABILITY_HTML = """\
   </div>
   
   <!-- ROW 2: Charts -->
-  <div class="panel col-6">
+  <div class="panel col-4">
     <div class="panel-header"><div class="panel-title">Command Latency Over Time</div></div>
     <div class="panel-body">
       <div class="chart-container">
@@ -252,11 +252,20 @@ OBSERVABILITY_HTML = """\
     </div>
   </div>
   
-  <div class="panel col-6">
-    <div class="panel-header"><div class="panel-title">Command Throughput & Status</div></div>
+  <div class="panel col-4">
+    <div class="panel-header"><div class="panel-title">Core Command Throughput</div></div>
     <div class="panel-body">
       <div class="chart-container">
         <canvas id="throughputChart"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel col-4">
+    <div class="panel-header"><div class="panel-title">Manual Override Throughput</div></div>
+    <div class="panel-body">
+      <div class="chart-container">
+        <canvas id="manualChart"></canvas>
       </div>
     </div>
   </div>
@@ -357,11 +366,13 @@ OBSERVABILITY_HTML = """\
     latencyP95: [],
     latencyMean: [],
     throughputSuccess: [],
-    throughputError: []
+    throughputError: [],
+    throughputManualSuccess: [],
+    throughputManualError: []
   };
   
   // --- Initialize Charts ---
-  let latencyChart, throughputChart;
+  let latencyChart, throughputChart, manualChart;
   
   function initCharts() {
     const commonScales = {
@@ -435,6 +446,41 @@ OBSERVABILITY_HTML = """\
             label: 'Rejection/Error',
             data: history.throughputError,
             backgroundColor: colors.red,
+            borderRadius: 2
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
+        scales: {
+          x: { stacked: true, grid: { color: colors.grid, drawBorder: false }, ticks: { maxTicksLimit: 8 } },
+          y: { stacked: true, grid: { color: colors.grid, drawBorder: false }, beginAtZero: true }
+        },
+        plugins: {
+          legend: { position: 'top', align: 'end' }
+        }
+      }
+    });
+
+    // Manual Throughput Stacked Bar Chart
+    const ctxManual = document.getElementById('manualChart').getContext('2d');
+    manualChart = new Chart(ctxManual, {
+      type: 'bar',
+      data: {
+        labels: history.timestamps,
+        datasets: [
+          {
+            label: 'Manual Success',
+            data: history.throughputManualSuccess,
+            backgroundColor: colors.blue,
+            borderRadius: 2
+          },
+          {
+            label: 'Manual Error/Reject',
+            data: history.throughputManualError,
+            backgroundColor: colors.orange,
             borderRadius: 2
           }
         ]
@@ -657,10 +703,12 @@ OBSERVABILITY_HTML = """\
         history.latencyMean = ts.latencyMean;
         history.throughputSuccess = ts.throughputSuccess;
         history.throughputError = ts.throughputError;
+        history.throughputManualSuccess = ts.throughputManualSuccess || [];
+        history.throughputManualError = ts.throughputManualError || [];
       }
       
       // Update Charts
-      if (latencyChart && throughputChart) {
+      if (latencyChart && throughputChart && manualChart) {
         latencyChart.data.labels = history.timestamps.slice(-currentDisplayPoints);
         latencyChart.data.datasets[0].data = history.latencyP95.slice(-currentDisplayPoints);
         latencyChart.data.datasets[1].data = history.latencyMean.slice(-currentDisplayPoints);
@@ -670,6 +718,11 @@ OBSERVABILITY_HTML = """\
         throughputChart.data.datasets[0].data = history.throughputSuccess.slice(-currentDisplayPoints);
         throughputChart.data.datasets[1].data = history.throughputError.slice(-currentDisplayPoints);
         throughputChart.update('none');
+
+        manualChart.data.labels = history.timestamps.slice(-currentDisplayPoints);
+        manualChart.data.datasets[0].data = history.throughputManualSuccess.slice(-currentDisplayPoints);
+        manualChart.data.datasets[1].data = history.throughputManualError.slice(-currentDisplayPoints);
+        manualChart.update('none');
       }
       
     } catch (e) {
