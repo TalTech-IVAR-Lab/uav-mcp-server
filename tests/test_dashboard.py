@@ -141,19 +141,21 @@ def dashboard_projection_app():
 
 @pytest.mark.asyncio
 async def test_dashboard_index_returns_html(dashboard_app) -> None:
-    from starlette.testclient import TestClient
+    import httpx
 
     app, _, _ = dashboard_app
-    client = TestClient(app, raise_server_exceptions=False)
-    resp = client.get("/dashboard/")
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.get("/dashboard/")
     assert resp.status_code == 200
     assert "text/html" in resp.headers["content-type"]
     assert "UAV MCP Dashboard" in resp.text
     assert "assistant-input" in resp.text
     assert "chat-log" in resp.text
     assert "map-target-orbit" in resp.text
-    assert "runtime-airframe" in resp.text
-    assert "eval-latency" in resp.text
+    assert "Camera projection" in resp.text
+    assert "Manual Control" in resp.text
+    assert "Home reference" in resp.text
     assert "flag-preflight" in resp.text
     assert "/dashboard/observability/" in resp.text
 
@@ -187,14 +189,17 @@ async def test_dashboard_api_telemetry_returns_snapshot(dashboard_app) -> None:
 
 @pytest.mark.asyncio
 async def test_dashboard_api_config_exposes_map_and_camera_settings(dashboard_app) -> None:
-    from starlette.testclient import TestClient
+    import httpx
 
     app, _, services = dashboard_app
-    client = TestClient(app, raise_server_exceptions=False)
-    resp = client.get("/dashboard/api/config")
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.get("/dashboard/api/config")
     assert resp.status_code == 200
     data = resp.json()
     assert data["geofence_center_lat"] == services.settings.geofence_center_lat
+    assert "px4_home_lat" in data
+    assert "px4_home_lon" in data
     assert data["camera"]["params"]["width_px"] == services.settings.camera_width_px
     assert data["camera"]["stabilized"] == services.settings.camera_stabilized
     assert data["assistant"]["vision_enabled"] is True
@@ -218,7 +223,7 @@ async def test_dashboard_observability_index_returns_html(dashboard_app) -> None
 
 @pytest.mark.asyncio
 async def test_dashboard_api_runtime_health_surfaces_runtime_and_readiness(monkeypatch, tmp_path) -> None:
-    from starlette.testclient import TestClient
+    import httpx
 
     world_path = tmp_path / "sim" / "gazebo-classic" / "worlds" / "taltech_test.world"
     world_path.parent.mkdir(parents=True, exist_ok=True)
@@ -245,7 +250,7 @@ async def test_dashboard_api_runtime_health_surfaces_runtime_and_readiness(monke
     monkeypatch.setattr(server_module, "_server_repo_root", lambda: tmp_path)
     settings = Settings(_env_file=None, camera_enabled=False)
     server, backend, _services = _make_server_and_backend(settings=settings)
-    client = TestClient(server.streamable_http_app(), raise_server_exceptions=False)
+    app = server.streamable_http_app()
 
     await server.call_tool("connect", {})
     await backend.publish_position()
@@ -255,7 +260,9 @@ async def test_dashboard_api_runtime_health_surfaces_runtime_and_readiness(monke
     await asyncio.sleep(0)
     await server.call_tool("gimbal_pitch_relative", {"delta_deg": 5.0})
 
-    resp = client.get("/dashboard/api/runtime-health")
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.get("/dashboard/api/runtime-health")
 
     assert resp.status_code == 200
     data = resp.json()
@@ -438,6 +445,47 @@ async def test_dashboard_api_assistant_plan_resolves_camera_target_for_orbit(mon
     assert data["proposed_calls"][0]["body"]["latitude_deg"] == pytest.approx(
         data["selected_target"]["latitude_deg"]
     )
+
+
+@pytest.mark.asyncio
+async def test_dashboard_api_assistant_execute_accepts_orbit_yaw_alias() -> None:
+    import httpx
+
+    settings = Settings(
+        _env_file=None,
+        camera_enabled=False,
+        camera_mount_pitch_deg=-90.0,
+    )
+    server, backend, services = _make_server_and_backend(settings=settings)
+    await _set_airborne_snapshot(services)
+
+    transport = httpx.ASGITransport(app=server.streamable_http_app())
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post(
+            "/dashboard/api/assistant/execute",
+            json={
+                "text": "orbit around the target",
+                "proposed_calls": [
+                    {
+                        "command": "orbit",
+                        "body": {
+                            "latitude_deg": services.settings.geofence_center_lat,
+                            "longitude_deg": services.settings.geofence_center_lon,
+                            "absolute_altitude_m": 150.0,
+                            "radius_m": 12.0,
+                            "velocity_m_s": 3.0,
+                            "yaw_behavior": "face_center",
+                        },
+                    }
+                ],
+            },
+        )
+
+    data = resp.json()
+    assert resp.status_code == 200
+    assert data["success"] is True
+    assert data["executed_calls"][0]["success"] is True
+    assert backend.orbit_calls[-1][-1] == "hold_front_to_circle_center"
 
 
 @pytest.mark.asyncio

@@ -1,8 +1,20 @@
 from uav_mcp_server.config import Settings
 from uav_mcp_server.safety import SafetyValidator
-from uav_mcp_server.types import DroneState, ErrorCode, TelemetrySnapshot, WaypointInput
+from uav_mcp_server.types import (
+    DroneState,
+    ErrorCode,
+    OrbitYawBehavior,
+    TelemetrySnapshot,
+    WaypointInput,
+)
 
 DEFAULT_SETTINGS = Settings()
+
+
+def test_orbit_yaw_behavior_accepts_assistant_aliases() -> None:
+    assert OrbitYawBehavior.parse("face_center") is OrbitYawBehavior.HOLD_FRONT_TO_CIRCLE_CENTER
+    assert OrbitYawBehavior.parse("look at target") is OrbitYawBehavior.HOLD_FRONT_TO_CIRCLE_CENTER
+    assert OrbitYawBehavior.parse("initial heading") is OrbitYawBehavior.HOLD_INITIAL_HEADING
 
 
 def _ready_snapshot(**overrides: object) -> TelemetrySnapshot:

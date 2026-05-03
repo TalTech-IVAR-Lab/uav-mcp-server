@@ -1,10 +1,3 @@
-"""Inline operator dashboard HTML with embedded CSS and JavaScript.
-
-The page stays self-contained in a single response while using MapLibre GL JS
-from a CDN for the live 3D map layer.
-"""
-
-DASHBOARD_HTML = """\
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -52,6 +45,8 @@ DASHBOARD_HTML = """\
   @keyframes pulseGlow {
     0%, 100% { opacity: 1; }
     50% { opacity: 0.6; }
+  }
+    50% { box-shadow: 0 0 14px var(--accent-glow); }
   }
   @keyframes fadeIn {
     from { opacity: 0; transform: translateY(6px); }
@@ -142,10 +137,9 @@ DASHBOARD_HTML = """\
 
   /* ── Dashboard Grid ── */
   .dashboard {
-    position: relative;
-    display: grid;
-    grid-template-columns: 320px 1fr 640px;
-    grid-template-rows: 1fr 350px;
+    position: relative;    display: grid;
+    grid-template-columns: 320px 1fr 340px;
+    grid-template-rows: 1fr 280px;
     gap: 16px;
     height: 100%;
     min-height: 0;
@@ -164,10 +158,10 @@ DASHBOARD_HTML = """\
   .visual-panel .panel-body { padding: 0; }
   .camera-stage { border-radius: 0; border: none; height: 100%; }
 
-  .map-panel      { grid-column: 3; grid-row: 1; }
-  .commands-panel { grid-column: 2; grid-row: 2; }
-  .status-panel   { grid-column: 3; grid-row: 2; }
-  .controls-panel { grid-column: 1; grid-row: 2; }
+  .map-panel      { grid-column: 3; grid-row: 2; }
+  .commands-panel  { grid-column: 2; grid-row: 2; }
+  .status-panel   { grid-column: 3; grid-row: 1; }
+  .controls-panel  { grid-column: 1; grid-row: 2; }
 
   .panel-head {
     display: flex; justify-content: space-between; align-items: center;
@@ -272,13 +266,15 @@ DASHBOARD_HTML = """\
     background: radial-gradient(circle, rgba(10,12,22,0.85), rgba(0,0,0,0.95));
   }
   .camera-placeholder.hidden { display: none; }
+  .visual-footer { position: absolute; bottom: 24px; left: 50%; transform: translateX(-50%); width: 400px; z-index: 20; background: var(--panel-bg); border: 1px solid var(--panel-border); border-radius: var(--radius); padding: 12px; backdrop-filter: blur(10px); }
+  .visual-footer { display: flex; flex-direction: column; gap: 6px; }
   .target-line { display: flex; justify-content: space-between; align-items: center; padding: 1px 0; }
   .target-line span { color: var(--text-muted); font-size: 10px; }
   .target-line strong { font-weight: 500; font-size: 10px; }
 
-  /* ── Telemetry ── */
+  /* ── Telemetry Matrix ── */
   .status-panel .panel-body { gap: 6px; }
-  .telemetry-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; }
+  .telemetry-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
   .metric {
     background: linear-gradient(145deg, rgba(255,255,255,0.02), rgba(0,0,0,0.15));
     border: 1px solid rgba(255,255,255,0.025);
@@ -294,7 +290,7 @@ DASHBOARD_HTML = """\
   .monitor-flags { display: flex; flex-direction: column; gap: 4px; }
 
   /* ── Event Matrix (inside telemetry) ── */
-  .events-section { flex: 1; min-height: 56px; display: flex; flex-direction: column; overflow: hidden; margin-top: 4px; }
+  .events-section { flex: 1; display: flex; flex-direction: column; overflow: hidden; margin-top: 4px; }
   .events { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 1px; }
   .event-row {
     padding: 2px 0; border-bottom: 1px solid rgba(255,255,255,0.025);
@@ -308,12 +304,9 @@ DASHBOARD_HTML = """\
 
   /* ── Map ── */
   .map-shell { display: flex; flex-direction: column; height: 100%; gap: 6px; }
-  .map-surface { flex: 1; min-height: 180px; border-radius: 8px; overflow: hidden; border: 1px solid var(--panel-border); }
+  .map-surface { flex: 1; min-height: 80px; border-radius: 8px; overflow: hidden; border: 1px solid var(--panel-border); }
   #map { width: 100%; height: 100%; filter: contrast(1.1) brightness(0.8) sepia(0.25) hue-rotate(180deg) saturate(1.4); }
   .map-footer { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
-  .target-card { display: flex; flex-direction: column; gap: 4px; }
-  .target-card .flex-row { margin-top: 2px; flex-wrap: wrap; }
-  .target-card .action-btn { flex: 1 1 120px; }
   .legend { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px 8px; }
   .legend-row { display: flex; align-items: center; gap: 5px; color: var(--text-muted); font-size: 10px; min-width: 0; }
   .legend-swatch { width: 12px; height: 12px; flex: 0 0 12px; position: relative; }
@@ -322,29 +315,9 @@ DASHBOARD_HTML = """\
     content: ''; position: absolute; top: -4px; left: 50%; transform: translateX(-50%);
     width: 0; height: 0; border-left: 3px solid transparent; border-right: 3px solid transparent; border-bottom: 7px solid #fff;
   }
-  .swatch-home   {
-    border-radius: 0;
-    background: var(--success);
-    clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%);
-    box-shadow: 0 0 0 2px #fff inset;
-  }
+  .swatch-home   { border-radius: 50%; background: var(--success); border: 2px solid #fff; }
   .swatch-target { border-radius: 50%; background: var(--warning); border: 2px solid #fff; }
-  .swatch-projection {
-    border-radius: 50%;
-    background: transparent;
-    border: 2px solid #ec5f8f;
-  }
-  .swatch-projection::before,
-  .swatch-projection::after {
-    content: '';
-    position: absolute;
-    background: #ec5f8f;
-    left: 50%;
-    top: 50%;
-    transform: translate(-50%, -50%);
-  }
-  .swatch-projection::before { width: 8px; height: 1px; }
-  .swatch-projection::after { width: 1px; height: 8px; }
+  .swatch-projection { border-radius: 50%; background: #ec5f8f; border: 2px solid #fff; }
   .swatch-fence  { border-radius: 2px; background: rgba(0,229,255,0.12); border: 1px solid var(--accent); }
   .maplibregl-map { background: transparent !important; }
   .drone-icon {
@@ -361,41 +334,13 @@ DASHBOARD_HTML = """\
     border-left: 4px solid transparent; border-right: 4px solid transparent;
     border-bottom: 9px solid #fff;
   }
-  .home-icon {
-    width: 16px;
-    height: 16px;
-    border-radius: 0;
-    border: none;
-    background: var(--success);
-    clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%);
-    box-shadow: 0 0 0 2px #fff inset, 0 0 6px rgba(16,185,129,0.65);
-  }
+  .home-icon   { width: 12px; height: 12px; border-radius: 50%; border: 2px solid #fff; background: var(--success); }
   .target-icon { width: 12px; height: 12px; border-radius: 50%; border: 2px solid #fff; background: var(--warning); animation: pulseGlow 2s infinite; }
-  .projection-icon {
-    width: 18px;
-    height: 18px;
-    border-radius: 50%;
-    border: 2px solid #ec5f8f;
-    background: rgba(236,95,143,0.12);
-    box-shadow: 0 0 8px rgba(236,95,143,0.75);
-    position: relative;
-    animation: pulseGlow 2s infinite;
-  }
-  .projection-icon::before,
-  .projection-icon::after {
-    content: '';
-    position: absolute;
-    background: #ec5f8f;
-    left: 50%;
-    top: 50%;
-    transform: translate(-50%, -50%);
-  }
-  .projection-icon::before { width: 10px; height: 1px; }
-  .projection-icon::after { width: 1px; height: 10px; }
+  .projection-icon { width: 12px; height: 12px; border-radius: 50%; border: 2px solid #fff; background: #ec5f8f; animation: pulseGlow 2s infinite; }
 
   /* ── Command Execution Panel ── */
   .command-shell { display: flex; flex-direction: column; gap: 6px; height: 100%; }
-  .tabs { display: none; }
+  .tabs { display: flex; border-bottom: 1px solid var(--panel-border); gap: 0; flex-shrink: 0; }
   .tab-btn {
     background: none; border: none; border-bottom: 2px solid transparent;
     color: var(--text-muted); padding: 6px 14px;
@@ -405,42 +350,8 @@ DASHBOARD_HTML = """\
   .tab-btn:hover { color: var(--text-main); }
   .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
   .tab-content { flex: 1; min-height: 0; overflow-y: auto; }
-  .command-workspace {
-    display: grid;
-    grid-template-columns: minmax(0, 1.05fr) minmax(280px, 0.95fr);
-    gap: 8px;
-    min-height: 0;
-    height: 100%;
-  }
-  .command-pane {
-    display: flex;
-    flex-direction: column;
-    min-height: 0;
-    border: 1px solid rgba(255,255,255,0.04);
-    border-radius: 8px;
-    background: rgba(0,0,0,0.12);
-    overflow: hidden;
-  }
-  .command-pane-title {
-    padding: 6px 8px;
-    border-bottom: 1px solid rgba(255,255,255,0.04);
-    color: var(--text-muted);
-    font-size: 9px;
-    font-weight: 700;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-  }
-  .command-pane-body {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    min-height: 0;
-    flex: 1;
-    padding: 8px;
-    overflow-y: auto;
-  }
 
-  .command-sections { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+  .command-sections { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
   .command-section { border: 1px solid rgba(255,255,255,0.04); border-radius: 8px; padding: 6px; background: rgba(0,0,0,0.12); }
   .command-section-title {
     font-size: 8px; color: var(--text-muted); text-transform: uppercase;
@@ -463,10 +374,10 @@ DASHBOARD_HTML = """\
   .cmd-safe   { border-left: 2px solid var(--success); }
   .cmd-danger { border-left: 2px solid var(--danger); }
   .cmd-ghost  { border-left: 2px solid var(--text-muted); }
-  .field-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; }
+  .field-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
   .field-help { display: block; margin-top: 2px; font-size: 8px; color: var(--text-muted); line-height: 1.2; }
 
-  /* ── Manual Control Panel ── */
+  /* ── Manual Override Panel ── */
   .controls-shell { display: flex; flex-direction: column; gap: 4px; height: 100%; }
   .result-bar {
     padding: 5px 10px; border-radius: var(--radius-sm);
@@ -650,23 +561,32 @@ DASHBOARD_HTML = """\
             <div id="selection-box" class="selection-box"></div>
           </div>
         </div>
+        <div class="visual-footer">
+          <div class="card">
+            <div class="card-title" style="margin-bottom:3px;">Reticle Target</div>
+            <div class="target-line"><span>Optical</span><strong id="selection-body">Select on video feed</strong></div>
+            <div class="target-line"><span>Spatial</span><strong id="map-target-body">Define via map click</strong></div>
+            <div class="flex-row" style="margin-top:4px;">
+              <button id="orbit-selection" class="action-btn primary" style="flex:1" disabled>Orbit Optic</button>
+              <button id="approach-selection" class="action-btn secondary" style="flex:1" disabled>Approach Optic</button>
+            </div>
+          </div>
+        </div>
       </div>
     </article>
 
-    <!-- ═══ Map ═══ -->
+    <!-- ═══ Spatial Awareness (Map) ═══ -->
     <article class="panel map-panel">
       <div class="panel-head">
-        <div class="panel-title">Map</div>
+        <div class="panel-title">Spatial Awareness</div>
         <label class="toggle"><input id="auto-center" type="checkbox" checked><span>Track Asset</span></label>
       </div>
       <div class="panel-body map-shell">
         <div class="map-surface"><div id="map"></div></div>
         <div class="map-footer">
-          <div class="card target-card">
+          <div class="card">
             <div class="card-title">Nav Solution</div>
             <div id="map-summary" style="margin: 2px 0 4px;">Waiting for data stream.</div>
-            <div class="target-line"><span>Camera projection</span><strong id="selection-body">Select on video feed</strong></div>
-            <div class="target-line"><span>Map target</span><strong id="map-target-body">Define via map click</strong></div>
             <div class="flex-row">
               <button id="map-target-clear" class="action-btn" type="button">Reset</button>
               <button id="map-target-orbit" class="action-btn primary" type="button" disabled>Orbit</button>
@@ -677,7 +597,7 @@ DASHBOARD_HTML = """\
             <div class="card-title" style="margin-bottom:4px;">Symbology</div>
             <div class="legend">
               <div class="legend-row"><span class="legend-swatch swatch-drone"></span>Drone + heading</div>
-              <div class="legend-row"><span class="legend-swatch swatch-home"></span>Home reference</div>
+              <div class="legend-row"><span class="legend-swatch swatch-home"></span>Home</div>
               <div class="legend-row"><span class="legend-swatch swatch-target"></span>Map target</div>
               <div class="legend-row"><span class="legend-swatch swatch-projection"></span>Camera projection</div>
               <div class="legend-row"><span class="legend-swatch swatch-fence"></span>Geofence</div>
@@ -687,10 +607,10 @@ DASHBOARD_HTML = """\
       </div>
     </article>
 
-    <!-- ═══ Telemetry ═══ -->
+    <!-- ═══ Telemetry Matrix ═══ -->
     <article class="panel status-panel">
       <div class="panel-head">
-        <div class="panel-title">Telemetry</div>
+        <div class="panel-title">Telemetry Matrix</div>
       </div>
       <div class="panel-body">
         <div class="telemetry-grid">
@@ -726,27 +646,26 @@ DASHBOARD_HTML = """\
         <div class="panel-title">Command Execution</div>
         <span id="command-summary" class="text-muted" style="font-size:9px;">Loading...</span>
       </div>
-      <div class="panel-body command-shell">
-        <div class="command-workspace">
-          <section class="command-pane">
-            <div class="command-pane-title">Commands</div>
-            <div id="panel-cmd" class="command-pane-body">
-              <div id="command-grid" class="command-sections"></div>
-              <div class="field-grid">
-                <label class="field-group"><span class="field-label">Takeoff Altitude</span><input id="p-alt" class="field-input" type="number" value="5" step="0.5"><span class="field-help">meters above launch</span></label>
-                <label class="field-group"><span class="field-label">Move North/South</span><input id="p-north" class="field-input" type="number" value="10" step="1"><span class="field-help">+N, -S meters</span></label>
-                <label class="field-group"><span class="field-label">Move East/West</span><input id="p-east" class="field-input" type="number" value="0" step="1"><span class="field-help">+E, -W meters</span></label>
-                <label class="field-group"><span class="field-label">Goto Altitude</span><input id="p-goto-alt" class="field-input" type="number" value="5" step="0.5"><span class="field-help">meters above launch</span></label>
-                <label class="field-group"><span class="field-label">Orbit Radius</span><input id="p-orbit-radius" class="field-input" type="number" value="12" step="1"><span class="field-help">standoff meters</span></label>
-                <label class="field-group"><span class="field-label">Orbit Speed</span><input id="p-orbit-speed" class="field-input" type="number" value="3" step="0.5"><span class="field-help">meters/second</span></label>
-              </div>
-            </div>
-          </section>
+      <div class="panel-body command-shell" style="padding-top:0;">
+        <div class="tabs">
+          <button class="tab-btn active" id="tab-cmd">Commands</button>
+          <button class="tab-btn" id="tab-ai">AI Assistant</button>
+        </div>
 
-          <section class="command-pane ai-command-pane">
-            <div class="command-pane-title">AI Assistant</div>
-            <div id="panel-ai" class="command-pane-body">
-              <div class="chat-card">
+        <div id="panel-cmd" class="tab-content">
+          <div id="command-grid" class="command-sections"></div>
+          <div class="field-grid" style="margin-top:8px;">
+            <label class="field-group"><span class="field-label">Takeoff Altitude</span><input id="p-alt" class="field-input" type="number" value="5" step="0.5"><span class="field-help">meters above launch</span></label>
+            <label class="field-group"><span class="field-label">Move North/South</span><input id="p-north" class="field-input" type="number" value="10" step="1"><span class="field-help">+N, -S meters</span></label>
+            <label class="field-group"><span class="field-label">Move East/West</span><input id="p-east" class="field-input" type="number" value="0" step="1"><span class="field-help">+E, -W meters</span></label>
+            <label class="field-group"><span class="field-label">Goto Altitude</span><input id="p-goto-alt" class="field-input" type="number" value="5" step="0.5"><span class="field-help">meters above launch</span></label>
+            <label class="field-group"><span class="field-label">Orbit Radius</span><input id="p-orbit-radius" class="field-input" type="number" value="12" step="1"><span class="field-help">standoff meters</span></label>
+            <label class="field-group"><span class="field-label">Orbit Speed</span><input id="p-orbit-speed" class="field-input" type="number" value="3" step="0.5"><span class="field-help">meters/second</span></label>
+          </div>
+        </div>
+
+        <div id="panel-ai" class="tab-content" style="display:none; flex-direction:column;">
+          <div class="chat-card">
             <div class="chat-head">
               <div class="card-title" style="margin:0;">Assistant Uplink</div>
               <label class="toggle"><input id="assistant-bypass" type="checkbox"><span>Auto-Exec</span></label>
@@ -764,17 +683,15 @@ DASHBOARD_HTML = """\
                 <button id="assistant-run" class="action-btn primary">Send</button>
               </div>
             </div>
-              </div>
-            </div>
-          </section>
+          </div>
         </div>
       </div>
     </article>
 
-    <!-- ═══ Manual Control ═══ -->
+    <!-- ═══ Manual Override ═══ -->
     <article class="panel controls-panel">
       <div class="panel-head">
-        <div class="panel-title">Manual Control</div>
+        <div class="panel-title">Manual Override</div>
         <span id="manual-status" style="font-size:10px;color:var(--accent);font-weight:600;letter-spacing:0.1em;text-transform:uppercase;">Active</span>
       </div>
       <div class="panel-body controls-shell">
@@ -837,7 +754,6 @@ DASHBOARD_HTML = """\
     commands: [],
     history: [],
     mapTarget: null,
-    activeTargetSource: null,
     commandBusy: false,
     selectionBusy: false,
     telemetryES: null,
@@ -1012,62 +928,6 @@ DASHBOARD_HTML = """\
     $('map-summary').textContent = parts.join(' | ');
   }
 
-  function getActiveTargetSource() {
-    if (appState.activeTargetSource === 'camera' && appState.selection && appState.selection.projection) return 'camera';
-    if (appState.activeTargetSource === 'map' && appState.mapTarget) return 'map';
-    if (appState.selection && appState.selection.projection) return 'camera';
-    if (appState.mapTarget) return 'map';
-    return null;
-  }
-
-  function updateTargetActionControls() {
-    var source = getActiveTargetSource();
-    var disabled = !source || appState.commandBusy || appState.selectionBusy;
-    var orbit = $('map-target-orbit');
-    var approach = $('map-target-approach');
-    var label = source === 'camera' ? 'camera projection' : (source === 'map' ? 'map target' : 'selected target');
-    if (orbit) {
-      orbit.disabled = disabled;
-      orbit.title = source ? 'Orbit active ' + label : 'Select a camera projection or map target first.';
-    }
-    if (approach) {
-      approach.disabled = disabled;
-      approach.title = source ? 'Approach active ' + label : 'Select a camera projection or map target first.';
-    }
-  }
-
-  /* ── Runtime Readiness ── */
-  function updateRuntimeHealth(runtime) {
-    appState.monitoring.runtime = runtime;
-    var readiness = runtime && runtime.readiness ? runtime.readiness : {};
-    var flags = readiness.flags || {};
-    var camera = runtime && runtime.camera ? runtime.camera : {};
-    var gimbal = runtime && runtime.gimbal ? runtime.gimbal : {};
-
-    setChip('flag-link', flags.telemetry_link ? 'ok' : 'warn', flags.telemetry_link ? 'Link ready' : 'Link pending');
-    setChip('flag-pose', flags.pose ? 'ok' : 'warn', flags.pose ? 'Pose ready' : 'Pose pending');
-    setChip('flag-preflight', flags.preflight ? 'ok' : 'warn', flags.preflight ? 'Preflight ready' : 'Preflight blocked');
-    setChip('flag-camera', flags.camera ? 'ok' : (camera.enabled ? 'warn' : 'err'), flags.camera ? 'Camera ready' : (camera.enabled ? 'Camera pending' : 'Camera off'));
-    setChip('flag-gimbal', flags.gimbal ? 'ok' : monitorMode(gimbal.status), flags.gimbal ? 'Gimbal ready' : ((gimbal.status || 'unknown') === 'disabled' ? 'Gimbal off' : 'Gimbal pending'));
-    setChip('flag-eval', flags.evaluation ? 'ok' : 'warn', flags.evaluation ? 'Eval ready' : 'Eval pending');
-
-    $('readiness-summary').textContent = readiness.summary || 'Runtime readiness unavailable.';
-  }
-
-  async function refreshMonitoring() {
-    try {
-      updateRuntimeHealth(await fetchJSON('/dashboard/api/runtime-health'));
-    } catch (error) {
-      $('readiness-summary').textContent = error && error.message ? error.message : 'Runtime readiness unavailable.';
-      setChip('flag-link', 'warn', 'Readiness stale');
-    }
-  }
-
-  function startMonitoringPolling() {
-    if (appState.monitoring.pollTimer !== null) window.clearInterval(appState.monitoring.pollTimer);
-    appState.monitoring.pollTimer = window.setInterval(refreshMonitoring, 10000);
-  }
-
   /* ── Events ── */
   function appendEvent(event) {
     const container = $('events');
@@ -1167,8 +1027,6 @@ DASHBOARD_HTML = """\
 
     var centerLon = appState.config.geofence_center_lon;
     var centerLat = appState.config.geofence_center_lat;
-    var homeLon = appState.config.px4_home_lon != null ? appState.config.px4_home_lon : centerLon;
-    var homeLat = appState.config.px4_home_lat != null ? appState.config.px4_home_lat : centerLat;
 
     appState.map = new maplibregl.Map({
       container: 'map',
@@ -1188,12 +1046,8 @@ DASHBOARD_HTML = """\
     mapTargetEl.style.display = 'none';
 
     appState.homeMarker = new maplibregl.Marker({ element: homeEl, anchor: 'center' })
-      .setLngLat([homeLon, homeLat])
-      .setPopup(
-        new maplibregl.Popup({ closeButton: false }).setHTML(
-          'Home reference<br>' + homeLat.toFixed(6) + ', ' + homeLon.toFixed(6)
-        )
-      )
+      .setLngLat([centerLon, centerLat])
+      .setPopup(new maplibregl.Popup({ closeButton: false }).setHTML('Home'))
       .addTo(appState.map);
 
     appState.droneMarker = new maplibregl.Marker({ element: droneEl, anchor: 'center' })
@@ -1296,7 +1150,7 @@ DASHBOARD_HTML = """\
     appState.targetMarker.setLngLat([projection.longitude_deg, projection.latitude_deg]);
     appState.targetMarker.setPopup(
       new maplibregl.Popup({ closeButton: false }).setHTML(
-        'Camera projection<br>' + projection.latitude_deg.toFixed(6) + ', ' + projection.longitude_deg.toFixed(6)
+        'Target<br>' + projection.latitude_deg.toFixed(6) + ', ' + projection.longitude_deg.toFixed(6)
       )
     );
   }
@@ -1307,7 +1161,8 @@ DASHBOARD_HTML = """\
     if (!target) {
       if (el) el.style.display = 'none';
       $('map-target-body').textContent = 'Define via map click';
-      updateTargetActionControls();
+      $('map-target-orbit').disabled = true;
+      $('map-target-approach').disabled = true;
       return;
     }
     appState.mapTargetMarker.setLngLat([target.longitude_deg, target.latitude_deg]);
@@ -1318,7 +1173,8 @@ DASHBOARD_HTML = """\
       )
     );
     $('map-target-body').textContent = target.latitude_deg.toFixed(6) + ', ' + target.longitude_deg.toFixed(6);
-    updateTargetActionControls();
+    $('map-target-orbit').disabled = appState.commandBusy || appState.selectionBusy;
+    $('map-target-approach').disabled = appState.commandBusy || appState.selectionBusy;
   }
 
   /* ── Config & Boot ── */
@@ -1452,14 +1308,14 @@ DASHBOARD_HTML = """\
   function updateSelectionUI() {
     var active = !!(appState.selection && appState.selection.projection);
     $('selection-body').textContent = selectionToSummary(appState.selection);
+    $('orbit-selection').disabled = !active || appState.selectionBusy;
+    $('approach-selection').disabled = !active || appState.selectionBusy;
     setChip('selection-status', active ? 'ok' : '', active ? 'Projected' : 'No target');
     if (active) updateTargetMarker(appState.selection.projection);
-    updateTargetActionControls();
   }
 
   function clearSelection() {
     appState.selection = null;
-    if (appState.activeTargetSource === 'camera') appState.activeTargetSource = appState.mapTarget ? 'map' : null;
     $('selection-box').classList.remove('visible');
     $('selection-box').style.width = '0px';
     $('selection-box').style.height = '0px';
@@ -1548,7 +1404,6 @@ DASHBOARD_HTML = """\
         }),
       });
       appState.selection = Object.assign({}, selection, { projection: projection });
-      appState.activeTargetSource = 'camera';
       updateSelectionUI();
       notify('Projected: ' + projection.latitude_deg.toFixed(6) + ', ' + projection.longitude_deg.toFixed(6), 'info');
     } catch (error) {
@@ -1630,6 +1485,8 @@ DASHBOARD_HTML = """\
         anchorLabel: 'center',
       });
     });
+    $('orbit-selection').addEventListener('click', function() { runSelectionAction('orbit'); });
+    $('approach-selection').addEventListener('click', function() { runSelectionAction('approach'); });
   }
 
   async function runSelectionAction(kind) {
@@ -1666,7 +1523,8 @@ DASHBOARD_HTML = """\
     document.querySelectorAll('.cmd-btn').forEach(function(b) { b.disabled = disabled; });
     document.querySelectorAll('[data-manual-action]').forEach(function(b) { b.disabled = disabled; });
     $('map-target-clear').disabled = disabled;
-    updateTargetActionControls();
+    $('map-target-orbit').disabled = disabled || !appState.mapTarget;
+    $('map-target-approach').disabled = disabled || !appState.mapTarget;
     $('quick-command-submit').disabled = disabled;
     $('assistant-confirm').disabled = disabled || !appState.assistant.pendingPlan;
     updateChatBusyState();
@@ -1722,8 +1580,8 @@ DASHBOARD_HTML = """\
 
   function handleCommandClick(commandName) {
     if (commandName === 'orbit') {
-      if (!getActiveTargetSource()) { notify('Select a camera projection or map target before orbit.', 'err'); return; }
-      runActiveTargetAction('orbit');
+      if (!appState.mapTarget) { notify('Select a map target before orbit.', 'err'); return; }
+      runMapTargetAction('orbit');
       return;
     }
     var payload = commandPayloadFor(commandName);
@@ -1968,7 +1826,6 @@ DASHBOARD_HTML = """\
         body: JSON.stringify(target),
       });
       appState.mapTarget = result.target || null;
-      if (appState.mapTarget) appState.activeTargetSource = 'map';
       updateMapTargetMarker(appState.mapTarget);
       updateMapSummary(appState.telemetry || {});
       if (appState.mapTarget) {
@@ -1983,9 +1840,6 @@ DASHBOARD_HTML = """\
     try {
       await fetchJSON('/dashboard/api/target', { method: 'DELETE' });
       appState.mapTarget = null;
-      if (appState.activeTargetSource === 'map') {
-        appState.activeTargetSource = appState.selection && appState.selection.projection ? 'camera' : null;
-      }
       updateMapTargetMarker(null);
       updateMapSummary(appState.telemetry || {});
       notify('Target cleared.', 'info');
@@ -2021,14 +1875,6 @@ DASHBOARD_HTML = """\
     }
   }
 
-  function runActiveTargetAction(kind) {
-    var source = getActiveTargetSource();
-    if (source === 'camera') return runSelectionAction(kind);
-    if (source === 'map') return runMapTargetAction(kind);
-    notify('Select a camera projection or map target first.', 'err');
-    return null;
-  }
-
   /* ── Quick Command Parser ── */
   function executeQuickCommand(text) {
     var normalized = text.trim().toLowerCase();
@@ -2041,15 +1887,15 @@ DASHBOARD_HTML = """\
     if (/rtl|return|come back/.test(normalized)) return sendCommand('rtl');
     if (/hold|hover|stop/.test(normalized))      return sendCommand('hold');
 
-    var takeoffMatch = normalized.match(/take\\s*off(?:\\s+to)?\\s+(\\d+(?:\\.\\d+)?)/);
+    var takeoffMatch = normalized.match(/take\s*off(?:\s+to)?\s+(\d+(?:\.\d+)?)/);
     if (takeoffMatch) {
       return sendCommand('guided_takeoff', { altitude_m: parseFloat(takeoffMatch[1]) });
     }
-    if (/take\\s*off/.test(normalized)) {
+    if (/take\s*off/.test(normalized)) {
       return sendCommand('guided_takeoff', { altitude_m: parseFloat($('p-alt').value) || 5 });
     }
 
-    var gotoMatch = normalized.match(/go\\s+(north|south|east|west)\\s+(\\d+(?:\\.\\d+)?)\\s*(?:meters?|m)?/);
+    var gotoMatch = normalized.match(/go\s+(north|south|east|west)\s+(\d+(?:\.\d+)?)\s*(?:meters?|m)?/);
     if (gotoMatch) {
       var dir = gotoMatch[1];
       var dist = parseFloat(gotoMatch[2]);
@@ -2062,10 +1908,12 @@ DASHBOARD_HTML = """\
     }
 
     if (/circle|orbit/.test(normalized)) {
-      return runActiveTargetAction('orbit');
+      if (appState.mapTarget && /target|map/.test(normalized)) return runMapTargetAction('orbit');
+      return runSelectionAction('orbit');
     }
     if (/approach|inspect/.test(normalized)) {
-      return runActiveTargetAction('approach');
+      if (appState.mapTarget && /target|map/.test(normalized)) return runMapTargetAction('approach');
+      return runSelectionAction('approach');
     }
 
     notify('Unrecognized command: ' + normalized, 'err');
@@ -2320,8 +2168,8 @@ DASHBOARD_HTML = """\
 
   function initMapTargetControls() {
     $('map-target-clear').addEventListener('click', function() { clearMapTarget(); });
-    $('map-target-orbit').addEventListener('click', function() { runActiveTargetAction('orbit'); });
-    $('map-target-approach').addEventListener('click', function() { runActiveTargetAction('approach'); });
+    $('map-target-orbit').addEventListener('click', function() { runMapTargetAction('orbit'); });
+    $('map-target-approach').addEventListener('click', function() { runMapTargetAction('approach'); });
   }
 
 
@@ -2331,8 +2179,8 @@ DASHBOARD_HTML = """\
     if (!dashboard) return;
 
     var colLeft = 320;
-    var colRight = 640;
-    var rowBottom = 350;
+    var colRight = 340;
+    var rowBottom = 280;
     var gap = 16;
 
     var dragVLeft = $('drag-v-left');
@@ -2464,8 +2312,6 @@ DASHBOARD_HTML = """\
       connectEventsSSE();
       loadInitialEvents();
       refreshStatus();
-      refreshMonitoring();
-      startMonitoringPolling();
       updateSelectionUI();
       updateMapTargetMarker(appState.mapTarget);
       updateManualUI();
@@ -2501,4 +2347,4 @@ DASHBOARD_HTML = """\
 </script>
 </body>
 </html>
-"""
+

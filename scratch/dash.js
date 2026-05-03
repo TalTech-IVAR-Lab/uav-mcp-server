@@ -1,832 +1,4 @@
-"""Inline operator dashboard HTML with embedded CSS and JavaScript.
 
-The page stays self-contained in a single response while using MapLibre GL JS
-from a CDN for the live 3D map layer.
-"""
-
-DASHBOARD_HTML = """\
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>UAV MCP Dashboard</title>
-<meta name="description" content="Real-time UAV operator dashboard with telemetry, map, camera targeting, and AI-assisted command execution.">
-<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@^4.7.1/dist/maplibre-gl.css" crossorigin="">
-<style>
-  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
-  /* ── Design Tokens ── */
-  :root {
-    --bg-primary: #000000;
-    --panel-bg: #1c1c1e;
-    --panel-border: rgba(255, 255, 255, 0.05);
-    --panel-shadow: none;
-    --accent: #f5c518;
-    --accent-dim: rgba(245, 197, 24, 0.15);
-    --accent-hover: #ffda47;
-    --accent-glow: transparent;
-    --purple: #4a90e2;
-    --success: #10b981;
-    --warning: #f59e0b;
-    --danger: #ef4444;
-    --text-main: #e0e0e0;
-    --text-muted: #888888;
-    --font: 'Outfit', system-ui, -apple-system, sans-serif;
-    --radius: 8px;
-    --radius-sm: 4px;
-    --transition: 0.18s cubic-bezier(0.4, 0, 0.2, 1);
-  }
-
-  html, body {
-    width: 100%; height: 100%; overflow: hidden;
-    background: var(--bg-primary);
-    color: var(--text-main);
-    font-family: var(--font);
-    font-size: 12px;
-    line-height: 1.35;
-  }
-
-  /* ── Animations ── */
-  @keyframes pulseGlow {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.6; }
-  }
-  @keyframes fadeIn {
-    from { opacity: 0; transform: translateY(6px); }
-    to { opacity: 1; transform: translateY(0); }
-  }
-  @keyframes spin {
-    to { transform: rotate(360deg); }
-  }
-
-  /* ── Scrollbar ── */
-  ::-webkit-scrollbar { width: 4px; height: 4px; }
-  ::-webkit-scrollbar-track { background: transparent; }
-  ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 4px; }
-  ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.15); }
-
-  /* ── Shell ── */
-  .shell {
-    display: grid;
-    grid-template-rows: auto 1fr;
-    height: 100vh;
-    padding: 16px;
-    gap: 16px;
-    margin: 0;
-    animation: fadeIn 0.35s ease-out;
-  }
-
-  /* ── Top Bar ── */
-  .topbar {
-    display: flex; justify-content: space-between; align-items: center;
-    background: var(--panel-bg); backdrop-filter: blur(16px);
-    border: 1px solid var(--panel-border); border-radius: var(--radius);
-    padding: 6px 16px;
-  }
-  .title-block .eyebrow {
-    color: var(--accent); font-weight: 600; font-size: 9px;
-    text-transform: uppercase; letter-spacing: 0.15em;
-  }
-  .title-block h1 {
-    font-size: 15px; font-weight: 700; margin: 1px 0 0;
-    background: linear-gradient(135deg, #fff 30%, var(--accent));
-    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-    background-clip: text;
-  }
-
-  /* ── Status Chips ── */
-  .status-strip { display: flex; gap: 8px; flex-wrap: wrap; }
-  .chip {
-    display: inline-flex; align-items: center; gap: 5px;
-    padding: 4px 10px; border-radius: 4px;
-    background: rgba(255,255,255,0.05); border: 1px solid var(--panel-border);
-    font-size: 10px; font-weight: 500; white-space: nowrap;
-  }
-  .chip .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--text-muted); flex-shrink: 0; }
-  .chip.ok .dot   { background: var(--success); }
-  .chip.warn .dot  { background: var(--warning); }
-  .chip.err .dot   { background: var(--danger); }
-  .chip.live       { background: var(--accent-dim); border-color: rgba(245,197,24,0.15); color: var(--accent); }
-  .chip.live .dot  { background: var(--accent); }
-
-
-  /* ── Resizers ── */
-  .resizer-v {
-    position: absolute;
-    width: 16px;
-    cursor: col-resize;
-    z-index: 50;
-    transform: translateX(-50%);
-  }
-  .resizer-v.right {
-    transform: translateX(50%);
-  }
-  .resizer-h {
-    position: absolute;
-    height: 16px;
-    cursor: row-resize;
-    z-index: 50;
-    transform: translateY(50%);
-  }
-  .resizer-v:hover::after, .resizer-h:hover::after,
-  .resizer-v.dragging::after, .resizer-h.dragging::after {
-    content: '';
-    position: absolute;
-    background: var(--accent);
-    opacity: 0.5;
-  }
-  .resizer-v::after { left: 7px; right: 7px; top: 0; bottom: 0; }
-  .resizer-h::after { top: 7px; bottom: 7px; left: 0; right: 0; }
-
-  /* ── Dashboard Grid ── */
-  .dashboard {
-    position: relative;
-    display: grid;
-    grid-template-columns: 320px 1fr 640px;
-    grid-template-rows: 1fr 350px;
-    gap: 16px;
-    height: 100%;
-    min-height: 0;
-  }
-
-  /* ── Panel Base ── */
-  .panel {
-    display: flex; flex-direction: column;
-    background: var(--panel-bg);
-    border: 1px solid var(--panel-border);
-    border-radius: var(--radius);
-    overflow: hidden; min-height: 0;
-  }
-  .visual-panel   { grid-column: 1 / span 2; grid-row: 1; border: none; background: #000; }
-  .visual-panel .panel-head { display: none; }
-  .visual-panel .panel-body { padding: 0; }
-  .camera-stage { border-radius: 0; border: none; height: 100%; }
-
-  .map-panel      { grid-column: 3; grid-row: 1; }
-  .commands-panel { grid-column: 2; grid-row: 2; }
-  .status-panel   { grid-column: 3; grid-row: 2; }
-  .controls-panel { grid-column: 1; grid-row: 2; }
-
-  .panel-head {
-    display: flex; justify-content: space-between; align-items: center;
-    padding: 7px 12px;
-    background: rgba(255,255,255,0.015);
-    border-bottom: 1px solid var(--panel-border);
-    flex-shrink: 0;
-  }
-  .panel-title {
-    font-size: 10px; font-weight: 600;
-    text-transform: uppercase; letter-spacing: 0.1em;
-    color: rgba(255,255,255,0.85);
-  }
-  .panel-body {
-    padding: 8px 10px; flex: 1; min-height: 0;
-    overflow-y: auto; display: flex; flex-direction: column;
-  }
-
-  /* ── Buttons ── */
-  button { cursor: pointer; font-family: var(--font); }
-  .action-btn {
-    padding: 4px 10px; font-weight: 500; font-size: 11px;
-    border: 1px solid var(--panel-border);
-    background: rgba(255,255,255,0.03); color: var(--text-main);
-    border-radius: var(--radius-sm);
-    transition: all var(--transition);
-  }
-  .action-btn:hover { background: rgba(255,255,255,0.07); border-color: rgba(255,255,255,0.15); }
-  .action-btn:active { transform: scale(0.97); }
-  .action-btn:disabled { opacity: 0.35; cursor: not-allowed; transform: none; }
-  .action-btn.primary {
-    background: var(--accent); color: #000; border: none; font-weight: 600;
-  }
-  .action-btn.primary:hover { background: var(--accent-hover); }
-  .action-btn.secondary { background: transparent; border: 1px solid var(--accent); color: var(--accent); }
-  .action-btn.secondary:hover { background: var(--accent-dim); }
-
-  /* ── Inputs ── */
-  .field-input {
-    width: 100%; border-radius: var(--radius-sm);
-    border: 1px solid rgba(255,255,255,0.08);
-    background: rgba(0,0,0,0.35); color: var(--text-main);
-    font-family: var(--font); padding: 5px 8px; font-size: 11px;
-    outline: none; transition: border-color var(--transition);
-  }
-  .field-input:focus { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(0,229,255,0.08); }
-  .field-group { display: flex; flex-direction: column; gap: 2px; }
-  .field-label {
-    font-size: 9px; text-transform: uppercase;
-    color: var(--text-muted); font-weight: 600; letter-spacing: 0.05em;
-  }
-
-  /* ── Cards ── */
-  .card {
-    background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.04);
-    border-radius: 8px; padding: 6px 10px;
-  }
-  .card-title {
-    color: var(--text-muted); font-size: 9px;
-    text-transform: uppercase; letter-spacing: 0.1em; font-weight: 600;
-  }
-
-  /* ── State Pills ── */
-  .state-pill {
-    display: inline-flex; align-items: center; justify-content: center;
-    padding: 2px 6px; border-radius: 4px;
-    font-size: 9px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase;
-  }
-  .state-disconnected { color: var(--danger); background: rgba(239,68,68,0.12); border: 1px solid rgba(239,68,68,0.25); }
-  .state-connected, .state-ready { color: var(--success); background: rgba(16,185,129,0.12); border: 1px solid rgba(16,185,129,0.25); }
-  .state-armed { color: var(--warning); background: rgba(245,158,11,0.12); border: 1px solid rgba(245,158,11,0.25); }
-  .state-airborne { color: var(--accent); background: var(--accent-dim); border: 1px solid rgba(0,229,255,0.25); }
-  .state-landing { color: var(--purple); background: rgba(157,78,221,0.12); border: 1px solid rgba(157,78,221,0.25); }
-  .state-fault { color: var(--danger); background: rgba(239,68,68,0.12); border: 1px solid rgba(239,68,68,0.25); }
-
-  /* ── Camera / Visual Targeting ── */
-  .camera-shell { display: flex; flex-direction: column; height: 100%; gap: 6px; }
-  .camera-toolbar { display: flex; justify-content: space-between; align-items: center; }
-  .camera-stage {
-    position: relative; flex: 1; min-height: 120px;
-    border-radius: 8px; overflow: hidden;
-    border: 1px solid var(--panel-border);
-    background: #020304;
-  }
-  .camera-stream { width: 100%; height: 100%; object-fit: cover; }
-  .camera-overlay { position: absolute; inset: 0; cursor: crosshair; touch-action: none; }
-  .crosshair {
-    position: absolute; left: 50%; top: 50%; width: 24px; height: 24px;
-    transform: translate(-50%, -50%);
-    border: 1px solid rgba(0,229,255,0.35); border-radius: 50%;
-    pointer-events: none;
-  }
-  .crosshair::before, .crosshair::after { content: ""; position: absolute; background: rgba(0,229,255,0.5); }
-  .crosshair::before { left: 50%; top: -4px; width: 1px; height: 32px; transform: translateX(-50%); }
-  .crosshair::after  { top: 50%; left: -4px; width: 32px; height: 1px; transform: translateY(-50%); }
-  .selection-box { position: absolute; display: none; border: 1px solid var(--accent); background: rgba(0,229,255,0.08); }
-  .selection-box.visible { display: block; animation: pulseGlow 2s infinite; }
-  .camera-placeholder {
-    position: absolute; inset: 0; display: flex; align-items: center;
-    justify-content: center; text-align: center; color: var(--text-muted);
-    font-size: 11px;
-    background: radial-gradient(circle, rgba(10,12,22,0.85), rgba(0,0,0,0.95));
-  }
-  .camera-placeholder.hidden { display: none; }
-  .target-line { display: flex; justify-content: space-between; align-items: center; padding: 1px 0; }
-  .target-line span { color: var(--text-muted); font-size: 10px; }
-  .target-line strong { font-weight: 500; font-size: 10px; }
-
-  /* ── Telemetry ── */
-  .status-panel .panel-body { gap: 6px; }
-  .telemetry-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; }
-  .metric {
-    background: linear-gradient(145deg, rgba(255,255,255,0.02), rgba(0,0,0,0.15));
-    border: 1px solid rgba(255,255,255,0.025);
-    border-radius: 8px; padding: 6px 8px;
-  }
-  .metric-label { color: var(--text-muted); font-size: 8px; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 600; }
-  .metric-value { font-size: 13px; font-weight: 600; margin-top: 2px; font-variant-numeric: tabular-nums; }
-  .metric-sub { margin-top: 1px; color: var(--text-muted); font-size: 9px; }
-  .monitor-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
-  .monitor-card { display: flex; flex-direction: column; gap: 2px; min-height: 0; }
-  .monitor-card strong { max-width: 145px; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .flag-strip { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
-  .monitor-flags { display: flex; flex-direction: column; gap: 4px; }
-
-  /* ── Event Matrix (inside telemetry) ── */
-  .events-section { flex: 1; min-height: 56px; display: flex; flex-direction: column; overflow: hidden; margin-top: 4px; }
-  .events { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 1px; }
-  .event-row {
-    padding: 2px 0; border-bottom: 1px solid rgba(255,255,255,0.025);
-    display: grid; grid-template-columns: 52px 60px 1fr; gap: 4px; font-size: 10px;
-  }
-  .event-time { color: var(--text-muted); font-family: monospace; font-size: 9px; }
-  .event-kind { color: var(--accent); font-size: 9px; }
-  .event-msg  { color: var(--text-main); font-size: 9px; }
-  .event-ok .event-msg { color: var(--success); }
-  .event-err .event-msg { color: var(--danger); }
-
-  /* ── Map ── */
-  .map-shell { display: flex; flex-direction: column; height: 100%; gap: 6px; }
-  .map-surface { flex: 1; min-height: 180px; border-radius: 8px; overflow: hidden; border: 1px solid var(--panel-border); }
-  #map { width: 100%; height: 100%; filter: contrast(1.1) brightness(0.8) sepia(0.25) hue-rotate(180deg) saturate(1.4); }
-  .map-footer { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
-  .target-card { display: flex; flex-direction: column; gap: 4px; }
-  .target-card .flex-row { margin-top: 2px; flex-wrap: wrap; }
-  .target-card .action-btn { flex: 1 1 120px; }
-  .legend { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px 8px; }
-  .legend-row { display: flex; align-items: center; gap: 5px; color: var(--text-muted); font-size: 10px; min-width: 0; }
-  .legend-swatch { width: 12px; height: 12px; flex: 0 0 12px; position: relative; }
-  .swatch-drone  { border-radius: 50%; background: var(--accent); border: 1px solid #fff; box-shadow: 0 0 6px var(--accent); }
-  .swatch-drone::after {
-    content: ''; position: absolute; top: -4px; left: 50%; transform: translateX(-50%);
-    width: 0; height: 0; border-left: 3px solid transparent; border-right: 3px solid transparent; border-bottom: 7px solid #fff;
-  }
-  .swatch-home   {
-    border-radius: 0;
-    background: var(--success);
-    clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%);
-    box-shadow: 0 0 0 2px #fff inset;
-  }
-  .swatch-target { border-radius: 50%; background: var(--warning); border: 2px solid #fff; }
-  .swatch-projection {
-    border-radius: 50%;
-    background: transparent;
-    border: 2px solid #ec5f8f;
-  }
-  .swatch-projection::before,
-  .swatch-projection::after {
-    content: '';
-    position: absolute;
-    background: #ec5f8f;
-    left: 50%;
-    top: 50%;
-    transform: translate(-50%, -50%);
-  }
-  .swatch-projection::before { width: 8px; height: 1px; }
-  .swatch-projection::after { width: 1px; height: 8px; }
-  .swatch-fence  { border-radius: 2px; background: rgba(0,229,255,0.12); border: 1px solid var(--accent); }
-  .maplibregl-map { background: transparent !important; }
-  .drone-icon {
-    --yaw-deg: 0deg;
-    width: 20px; height: 20px; border-radius: 50%;
-    border: 2px solid #fff; background: var(--accent);
-    box-shadow: 0 0 8px var(--accent); position: relative;
-  }
-  .drone-icon::after {
-    content: ''; position: absolute; top: 50%; left: 50%;
-    transform: translate(-50%, -95%) rotate(var(--yaw-deg));
-    transform-origin: 50% 95%;
-    width: 0; height: 0;
-    border-left: 4px solid transparent; border-right: 4px solid transparent;
-    border-bottom: 9px solid #fff;
-  }
-  .home-icon {
-    width: 16px;
-    height: 16px;
-    border-radius: 0;
-    border: none;
-    background: var(--success);
-    clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%);
-    box-shadow: 0 0 0 2px #fff inset, 0 0 6px rgba(16,185,129,0.65);
-  }
-  .target-icon { width: 12px; height: 12px; border-radius: 50%; border: 2px solid #fff; background: var(--warning); animation: pulseGlow 2s infinite; }
-  .projection-icon {
-    width: 18px;
-    height: 18px;
-    border-radius: 50%;
-    border: 2px solid #ec5f8f;
-    background: rgba(236,95,143,0.12);
-    box-shadow: 0 0 8px rgba(236,95,143,0.75);
-    position: relative;
-    animation: pulseGlow 2s infinite;
-  }
-  .projection-icon::before,
-  .projection-icon::after {
-    content: '';
-    position: absolute;
-    background: #ec5f8f;
-    left: 50%;
-    top: 50%;
-    transform: translate(-50%, -50%);
-  }
-  .projection-icon::before { width: 10px; height: 1px; }
-  .projection-icon::after { width: 1px; height: 10px; }
-
-  /* ── Command Execution Panel ── */
-  .command-shell { display: flex; flex-direction: column; gap: 6px; height: 100%; }
-  .tabs { display: none; }
-  .tab-btn {
-    background: none; border: none; border-bottom: 2px solid transparent;
-    color: var(--text-muted); padding: 6px 14px;
-    font-size: 11px; font-weight: 500; border-radius: 0;
-    transition: color var(--transition);
-  }
-  .tab-btn:hover { color: var(--text-main); }
-  .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
-  .tab-content { flex: 1; min-height: 0; overflow-y: auto; }
-  .command-workspace {
-    display: grid;
-    grid-template-columns: minmax(0, 1.05fr) minmax(280px, 0.95fr);
-    gap: 8px;
-    min-height: 0;
-    height: 100%;
-  }
-  .command-pane {
-    display: flex;
-    flex-direction: column;
-    min-height: 0;
-    border: 1px solid rgba(255,255,255,0.04);
-    border-radius: 8px;
-    background: rgba(0,0,0,0.12);
-    overflow: hidden;
-  }
-  .command-pane-title {
-    padding: 6px 8px;
-    border-bottom: 1px solid rgba(255,255,255,0.04);
-    color: var(--text-muted);
-    font-size: 9px;
-    font-weight: 700;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-  }
-  .command-pane-body {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    min-height: 0;
-    flex: 1;
-    padding: 8px;
-    overflow-y: auto;
-  }
-
-  .command-sections { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
-  .command-section { border: 1px solid rgba(255,255,255,0.04); border-radius: 8px; padding: 6px; background: rgba(0,0,0,0.12); }
-  .command-section-title {
-    font-size: 8px; color: var(--text-muted); text-transform: uppercase;
-    letter-spacing: 0.08em; font-weight: 700; margin-bottom: 5px;
-  }
-  .command-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; }
-  .cmd-btn {
-    padding: 6px 4px; display: flex; flex-direction: column; gap: 2px;
-    align-items: center; text-align: center;
-    border: 1px solid var(--panel-border);
-    background: linear-gradient(180deg, rgba(255,255,255,0.04), transparent);
-    color: var(--text-main); border-radius: var(--radius-sm);
-    font-family: var(--font); transition: all var(--transition);
-  }
-  .cmd-btn:hover { background: rgba(255,255,255,0.06); transform: translateY(-1px); }
-  .cmd-btn:active { transform: scale(0.97); }
-  .cmd-btn:disabled { opacity: 0.35; cursor: not-allowed; transform: none; }
-  .cmd-label { font-size: 10px; font-weight: 600; }
-  .cmd-meta  { font-size: 8px; color: var(--text-muted); letter-spacing: 0.08em; }
-  .cmd-safe   { border-left: 2px solid var(--success); }
-  .cmd-danger { border-left: 2px solid var(--danger); }
-  .cmd-ghost  { border-left: 2px solid var(--text-muted); }
-  .field-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; }
-  .field-help { display: block; margin-top: 2px; font-size: 8px; color: var(--text-muted); line-height: 1.2; }
-
-  /* ── Manual Control Panel ── */
-  .controls-shell { display: flex; flex-direction: column; gap: 4px; height: 100%; }
-  .result-bar {
-    padding: 5px 10px; border-radius: var(--radius-sm);
-    font-size: 11px; font-weight: 500;
-    background: rgba(0,0,0,0.25); border: 1px solid transparent;
-    flex-shrink: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  }
-  .result-bar.ok   { background: rgba(16,185,129,0.08); border-color: var(--success); color: var(--success); }
-  .result-bar.err  { background: rgba(239,68,68,0.08); border-color: var(--danger); color: var(--danger); }
-  .result-bar.info { background: var(--accent-dim); border-color: rgba(0,229,255,0.2); color: var(--accent); }
-  .result-bar.connecting {
-    background: rgba(245,158,11,0.08); border-color: var(--warning); color: var(--warning);
-  }
-  .result-bar.connecting::after {
-    content: ''; display: inline-block; width: 10px; height: 10px;
-    border: 2px solid var(--warning); border-top-color: transparent;
-    border-radius: 50%; animation: spin 0.8s linear infinite;
-    margin-left: 8px; vertical-align: middle;
-  }
-
-  .manual-core {
-    display: grid;
-    grid-template-columns: auto auto;
-    gap: 4px 16px;
-    justify-content: center;
-    align-items: start;
-  }
-  .manual-group-label {
-    font-size: 9px; font-weight: 600; color: var(--text-muted);
-    text-transform: uppercase; letter-spacing: 0.08em;
-    text-align: center; margin-bottom: 2px;
-  }
-  .manual-pad {
-    display: grid; grid-template-columns: repeat(3, 32px);
-    grid-template-rows: repeat(2, 32px); gap: 3px; justify-content: center;
-  }
-  .key-w  { grid-column: 2; grid-row: 1; }
-  .key-a  { grid-column: 1; grid-row: 2; }
-  .key-s  { grid-column: 2; grid-row: 2; }
-  .key-d  { grid-column: 3; grid-row: 2; }
-  .key-up    { grid-column: 2; grid-row: 1; }
-  .key-left  { grid-column: 1; grid-row: 2; }
-  .key-down  { grid-column: 2; grid-row: 2; }
-  .key-right { grid-column: 3; grid-row: 2; }
-
-  .key-btn {
-    display: flex; align-items: center; justify-content: center;
-    border-radius: 4px; width: 32px; height: 32px;
-    background: rgba(255,255,255,0.06);
-    border: 1px solid rgba(255,255,255,0.08);
-    transition: all 0.1s; padding: 0;
-    color: var(--text-main); font-family: var(--font);
-  }
-  .key-cap { font-family: monospace; font-size: 12px; font-weight: 700; line-height: 1; }
-  .key-btn.active { background: rgba(0,229,255,0.2); border-color: var(--accent); transform: scale(0.92); }
-  .key-btn:active { transform: scale(0.92); }
-  .key-btn.unsupported { opacity: 0.2; pointer-events: none; }
-
-  .manual-aux {
-    display: flex; gap: 4px; align-items: center; justify-content: center;
-  }
-  .key-btn-sm {
-    display: flex; align-items: center; justify-content: center;
-    width: 28px; height: 24px; border-radius: 4px;
-    background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.08);
-    transition: all 0.1s; padding: 0;
-    color: var(--text-main); font-family: var(--font); cursor: pointer;
-  }
-  .key-btn-sm .key-cap { font-size: 11px; }
-  .key-btn-sm.unsupported { opacity: 0.2; pointer-events: none; }
-  .key-btn-sm.active { background: rgba(0,229,255,0.2); border-color: var(--accent); }
-
-  .manual-bottom {
-    display: grid; grid-template-columns: auto 1fr auto 1fr; gap: 4px;
-    align-items: center; margin-top: 2px;
-  }
-  .manual-bottom .field-input { padding: 3px 6px; font-size: 10px; }
-  .manual-bottom .field-label { font-size: 8px; }
-
-  .quick-bar { display: flex; gap: 4px; margin-top: auto; }
-  .quick-bar .field-input { flex: 1; padding: 4px 8px; font-size: 10px; }
-  .quick-bar .action-btn { padding: 4px 8px; font-size: 10px; }
-
-  .manual-meta { font-size: 9px; color: var(--text-muted); text-align: center; }
-
-  /* ── Chat / AI Panel ── */
-  .chat-card {
-    display: flex; flex-direction: column; flex: 1; min-height: 0;
-    background: rgba(0,0,0,0.15); border: 1px solid rgba(255,255,255,0.04);
-    border-radius: 8px; overflow: hidden;
-  }
-  .chat-head {
-    display: flex; justify-content: space-between; align-items: center;
-    padding: 6px 10px; border-bottom: 1px solid rgba(255,255,255,0.04);
-    flex-shrink: 0;
-  }
-  .chat-body { padding: 6px 8px; display: flex; flex-direction: column; gap: 6px; flex: 1; min-height: 0; }
-  .chat-log { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
-  .chat-empty { color: var(--text-muted); font-size: 10px; text-align: center; margin-top: 16px; }
-  .chat-row {
-    padding: 6px 8px; border-radius: 8px; font-size: 11px; line-height: 1.35;
-    background: rgba(255,255,255,0.02); border-left: 2px solid transparent;
-  }
-  .chat-row.operator { border-color: var(--accent); align-self: flex-end; background: rgba(0,229,255,0.04); max-width: 88%; }
-  .chat-row.assistant { border-color: var(--success); max-width: 88%; }
-  .chat-row.system    { border-color: var(--text-muted); font-size: 10px; color: var(--text-muted); }
-  .chat-role { font-size: 8px; text-transform: uppercase; margin-bottom: 2px; opacity: 0.6; }
-  .trace-list { margin-top: 4px; display: flex; flex-direction: column; gap: 3px; }
-  .trace-item { padding: 4px; background: rgba(0,0,0,0.3); border-radius: 4px; font-family: monospace; font-size: 9px; }
-  .trace-item.ok  { border-left: 2px solid var(--success); }
-  .trace-item.err { border-left: 2px solid var(--danger); }
-
-  .chat-compose { display: flex; gap: 4px; align-items: stretch; flex-shrink: 0; }
-  .confirm-bar {
-    display: none; padding: 5px 8px; font-size: 10px;
-    background: rgba(245,158,11,0.08); border: 1px solid var(--warning);
-    border-radius: var(--radius-sm); justify-content: space-between; align-items: center;
-    flex-shrink: 0;
-  }
-  .confirm-bar.visible { display: flex; }
-
-  .voice-btn {
-    background: rgba(0,229,255,0.08); border: 1px solid rgba(0,229,255,0.2);
-    border-radius: var(--radius-sm); color: var(--accent);
-    padding: 0 8px; cursor: pointer; transition: all var(--transition);
-    font-size: 14px; line-height: 1;
-  }
-  .voice-btn:hover { background: rgba(0,229,255,0.15); }
-  .voice-btn.recording { background: var(--danger); border-color: var(--danger); color: #fff; animation: pulseGlow 1s infinite; }
-
-  /* ── Toggles ── */
-  .toggle { display: flex; align-items: center; gap: 5px; color: var(--text-main); font-size: 10px; }
-  input[type="checkbox"] { accent-color: var(--accent); width: 12px; height: 12px; }
-
-  /* ── Utilities ── */
-  .flex-row { display: flex; gap: 6px; }
-  .text-muted { color: var(--text-muted); }
-  #map-summary { font-size: 10px; color: var(--text-main); margin-bottom: 4px; }
-</style>
-</head>
-<body>
-<div class="shell">
-  <header class="topbar">
-    <div class="title-block">
-      <div class="eyebrow">Advanced Operator Surface</div>
-      <h1>UAV MCP Interface</h1>
-    </div>
-    <div class="status-strip">
-      <a href="/dashboard/observability/" class="chip live" style="text-decoration:none;"><span class="dot"></span><span>Observability</span></a>
-      <div id="state-chip" class="chip"><span class="dot"></span><span>Initializing</span></div>
-      <div id="conn-chip" class="chip err"><span class="dot"></span><span>Backend offline</span></div>
-      <div id="camera-chip" class="chip warn"><span class="dot"></span><span>Camera pending</span></div>
-      <div id="control-chip" class="chip"><span class="dot"></span><span>Manual locked</span></div>
-    </div>
-  </header>
-
-    <main class="dashboard" id="dashboard">
-    <!-- ═══ Drag Resizers ═══ -->
-    <div id="drag-v-left" class="resizer-v"></div>
-    <div id="drag-v-right" class="resizer-v right"></div>
-    <div id="drag-h" class="resizer-h"></div>
-    <!-- ═══ Visual Targeting ═══ -->
-    <article class="panel visual-panel">
-      <div class="panel-head">
-        <div class="panel-title">Visual Targeting</div>
-        <span id="camera-topic" class="chip"><span class="dot"></span><span>Route pending</span></span>
-      </div>
-      <div class="panel-body camera-shell">
-        <div class="camera-toolbar">
-          <div class="flex-row">
-            <button id="clear-selection" class="action-btn" type="button">Clear</button>
-            <button id="project-center" class="action-btn" type="button">Lock Center</button>
-          </div>
-          <span id="selection-status" class="chip"><span class="dot"></span><span>No target</span></span>
-        </div>
-        <div class="camera-stage">
-          <img id="camera-stream" class="camera-stream" alt="">
-          <div id="camera-placeholder" class="camera-placeholder">Live feed unavailable.</div>
-          <div id="camera-overlay" class="camera-overlay">
-            <div class="crosshair"></div>
-            <div id="selection-box" class="selection-box"></div>
-          </div>
-        </div>
-      </div>
-    </article>
-
-    <!-- ═══ Map ═══ -->
-    <article class="panel map-panel">
-      <div class="panel-head">
-        <div class="panel-title">Map</div>
-        <label class="toggle"><input id="auto-center" type="checkbox" checked><span>Track Asset</span></label>
-      </div>
-      <div class="panel-body map-shell">
-        <div class="map-surface"><div id="map"></div></div>
-        <div class="map-footer">
-          <div class="card target-card">
-            <div class="card-title">Nav Solution</div>
-            <div id="map-summary" style="margin: 2px 0 4px;">Waiting for data stream.</div>
-            <div class="target-line"><span>Camera projection</span><strong id="selection-body">Select on video feed</strong></div>
-            <div class="target-line"><span>Map target</span><strong id="map-target-body">Define via map click</strong></div>
-            <div class="flex-row">
-              <button id="map-target-clear" class="action-btn" type="button">Reset</button>
-              <button id="map-target-orbit" class="action-btn primary" type="button" disabled>Orbit</button>
-              <button id="map-target-approach" class="action-btn secondary" type="button" disabled>Approach</button>
-            </div>
-          </div>
-          <div class="card" style="display:flex; flex-direction:column; justify-content:center;">
-            <div class="card-title" style="margin-bottom:4px;">Symbology</div>
-            <div class="legend">
-              <div class="legend-row"><span class="legend-swatch swatch-drone"></span>Drone + heading</div>
-              <div class="legend-row"><span class="legend-swatch swatch-home"></span>Home reference</div>
-              <div class="legend-row"><span class="legend-swatch swatch-target"></span>Map target</div>
-              <div class="legend-row"><span class="legend-swatch swatch-projection"></span>Camera projection</div>
-              <div class="legend-row"><span class="legend-swatch swatch-fence"></span>Geofence</div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </article>
-
-    <!-- ═══ Telemetry ═══ -->
-    <article class="panel status-panel">
-      <div class="panel-head">
-        <div class="panel-title">Telemetry</div>
-      </div>
-      <div class="panel-body">
-        <div class="telemetry-grid">
-          <div class="metric"><div class="metric-label">State</div><div class="metric-value"><span id="t-state" class="state-pill state-disconnected">OFFLINE</span></div><div class="metric-sub" id="t-flight-mode">--</div></div>
-          <div class="metric"><div class="metric-label">Power</div><div class="metric-value" id="t-battery">--%</div><div class="metric-sub" id="t-gps">--</div></div>
-          <div class="metric"><div class="metric-label">Altitude</div><div class="metric-value" id="t-rel-alt">-- m</div><div class="metric-sub" id="t-abs-alt">--</div></div>
-          <div class="metric"><div class="metric-label">Position</div><div class="metric-value" id="t-lat">--</div><div class="metric-sub" id="t-lon">--</div></div>
-          <div class="metric"><div class="metric-label">Attitude</div><div class="metric-value" id="t-yaw">--</div><div class="metric-sub" id="t-pitch">--</div></div>
-          <div class="metric"><div class="metric-label">Roll / Flags</div><div class="metric-value" id="t-roll">--</div><div class="metric-sub" id="t-flags">--</div></div>
-        </div>
-        <div class="card monitor-flags">
-          <div class="card-title">Readiness Flags</div>
-          <div class="flag-strip">
-            <div id="flag-link" class="chip"><span class="dot"></span><span>Link pending</span></div>
-            <div id="flag-pose" class="chip"><span class="dot"></span><span>Pose pending</span></div>
-            <div id="flag-preflight" class="chip"><span class="dot"></span><span>Preflight pending</span></div>
-            <div id="flag-camera" class="chip"><span class="dot"></span><span>Camera pending</span></div>
-            <div id="flag-gimbal" class="chip"><span class="dot"></span><span>Gimbal pending</span></div>
-            <div id="flag-eval" class="chip"><span class="dot"></span><span>Eval pending</span></div>
-          </div>
-          <div class="metric-sub" id="readiness-summary">Monitoring surface warming up.</div>
-        </div>
-        <div class="events-section card" style="margin-top:6px;">
-          <div class="card-title" style="margin-bottom:3px;">Event Matrix</div>
-          <div id="events" class="events"></div>
-        </div>
-      </div>
-    </article>
-
-    <!-- ═══ Command Execution ═══ -->
-    <article class="panel commands-panel">
-      <div class="panel-head">
-        <div class="panel-title">Command Execution</div>
-        <span id="command-summary" class="text-muted" style="font-size:9px;">Loading...</span>
-      </div>
-      <div class="panel-body command-shell">
-        <div class="command-workspace">
-          <section class="command-pane">
-            <div class="command-pane-title">Commands</div>
-            <div id="panel-cmd" class="command-pane-body">
-              <div id="command-grid" class="command-sections"></div>
-              <div class="field-grid">
-                <label class="field-group"><span class="field-label">Takeoff Altitude</span><input id="p-alt" class="field-input" type="number" value="5" step="0.5"><span class="field-help">meters above launch</span></label>
-                <label class="field-group"><span class="field-label">Move North/South</span><input id="p-north" class="field-input" type="number" value="10" step="1"><span class="field-help">+N, -S meters</span></label>
-                <label class="field-group"><span class="field-label">Move East/West</span><input id="p-east" class="field-input" type="number" value="0" step="1"><span class="field-help">+E, -W meters</span></label>
-                <label class="field-group"><span class="field-label">Goto Altitude</span><input id="p-goto-alt" class="field-input" type="number" value="5" step="0.5"><span class="field-help">meters above launch</span></label>
-                <label class="field-group"><span class="field-label">Orbit Radius</span><input id="p-orbit-radius" class="field-input" type="number" value="12" step="1"><span class="field-help">standoff meters</span></label>
-                <label class="field-group"><span class="field-label">Orbit Speed</span><input id="p-orbit-speed" class="field-input" type="number" value="3" step="0.5"><span class="field-help">meters/second</span></label>
-              </div>
-            </div>
-          </section>
-
-          <section class="command-pane ai-command-pane">
-            <div class="command-pane-title">AI Assistant</div>
-            <div id="panel-ai" class="command-pane-body">
-              <div class="chat-card">
-            <div class="chat-head">
-              <div class="card-title" style="margin:0;">Assistant Uplink</div>
-              <label class="toggle"><input id="assistant-bypass" type="checkbox"><span>Auto-Exec</span></label>
-            </div>
-            <div class="chat-body">
-              <div id="chat-log" class="chat-log"><div class="chat-empty">Ready. Use mic or type a command.</div></div>
-              <div class="confirm-bar" id="assistant-confirm-bar">
-                <div id="assistant-confirm-text" style="font-size:10px;"></div>
-                <button id="assistant-confirm" class="action-btn primary" disabled>Commit</button>
-              </div>
-              <div class="chat-compose">
-                <button id="voice-cmd-btn" class="voice-btn" title="Voice input">&#x1F3A4;</button>
-                <input id="assistant-input" class="field-input" style="flex:1;" type="text" placeholder="Enter command..." autocomplete="off">
-                <button id="assistant-preview" class="action-btn secondary">Preview</button>
-                <button id="assistant-run" class="action-btn primary">Send</button>
-              </div>
-            </div>
-              </div>
-            </div>
-          </section>
-        </div>
-      </div>
-    </article>
-
-    <!-- ═══ Manual Control ═══ -->
-    <article class="panel controls-panel">
-      <div class="panel-head">
-        <div class="panel-title">Manual Control</div>
-        <span id="manual-status" style="font-size:10px;color:var(--accent);font-weight:600;letter-spacing:0.1em;text-transform:uppercase;">Active</span>
-      </div>
-      <div class="panel-body controls-shell">
-        <div id="result-bar" class="result-bar">Awaiting backend connection...</div>
-
-        <div class="manual-core">
-          <div>
-            <div class="manual-group-label">WASD Translate</div>
-            <div class="manual-pad">
-              <button class="key-btn key-w" data-manual-action="move_forward"><span class="key-cap">W</span></button>
-              <button class="key-btn key-a" data-manual-action="move_left"><span class="key-cap">A</span></button>
-              <button class="key-btn key-s" data-manual-action="move_back"><span class="key-cap">S</span></button>
-              <button class="key-btn key-d" data-manual-action="move_right"><span class="key-cap">D</span></button>
-            </div>
-          </div>
-          <div>
-            <div class="manual-group-label">Alt / Yaw</div>
-            <div class="manual-pad">
-              <button class="key-btn key-up" data-manual-action="altitude_up"><span class="key-cap">&#x25B2;</span></button>
-              <button class="key-btn key-left" data-manual-action="yaw_left"><span class="key-cap">&#x25C0;</span></button>
-              <button class="key-btn key-down" data-manual-action="altitude_down"><span class="key-cap">&#x25BC;</span></button>
-              <button class="key-btn key-right" data-manual-action="yaw_right"><span class="key-cap">&#x25B6;</span></button>
-            </div>
-          </div>
-        </div>
-
-        <div class="manual-aux">
-          <button class="key-btn-sm" data-manual-action="gimbal_up"><span class="key-cap">Q</span></button>
-          <span class="manual-group-label" style="margin:0 4px;">Gimbal</span>
-          <button class="key-btn-sm" data-manual-action="gimbal_down"><span class="key-cap">E</span></button>
-        </div>
-
-        <div class="manual-bottom">
-          <span class="field-label">XY m</span>
-          <input id="manual-step" class="field-input" type="number" value="10" min="0.5" step="0.5">
-          <span class="field-label">Z m</span>
-          <input id="manual-alt-step" class="field-input" type="number" value="1.5" min="0.5" step="0.5">
-        </div>
-
-        <div class="quick-bar">
-          <input id="quick-command-input" class="field-input" type="text" placeholder="Quick command..." autocomplete="off">
-          <button id="quick-command-submit" class="action-btn">Run</button>
-        </div>
-
-        <div class="manual-meta" id="manual-summary">Enable toggle to accept keyboard controls.</div>
-      </div>
-    </article>
-  </main>
-</div>
-
-<script src="https://unpkg.com/maplibre-gl@^4.7.1/dist/maplibre-gl.js" crossorigin=""></script>
-<script>
 (function(){
   'use strict';
 
@@ -837,7 +9,6 @@ DASHBOARD_HTML = """\
     commands: [],
     history: [],
     mapTarget: null,
-    activeTargetSource: null,
     commandBusy: false,
     selectionBusy: false,
     telemetryES: null,
@@ -1012,62 +183,6 @@ DASHBOARD_HTML = """\
     $('map-summary').textContent = parts.join(' | ');
   }
 
-  function getActiveTargetSource() {
-    if (appState.activeTargetSource === 'camera' && appState.selection && appState.selection.projection) return 'camera';
-    if (appState.activeTargetSource === 'map' && appState.mapTarget) return 'map';
-    if (appState.selection && appState.selection.projection) return 'camera';
-    if (appState.mapTarget) return 'map';
-    return null;
-  }
-
-  function updateTargetActionControls() {
-    var source = getActiveTargetSource();
-    var disabled = !source || appState.commandBusy || appState.selectionBusy;
-    var orbit = $('map-target-orbit');
-    var approach = $('map-target-approach');
-    var label = source === 'camera' ? 'camera projection' : (source === 'map' ? 'map target' : 'selected target');
-    if (orbit) {
-      orbit.disabled = disabled;
-      orbit.title = source ? 'Orbit active ' + label : 'Select a camera projection or map target first.';
-    }
-    if (approach) {
-      approach.disabled = disabled;
-      approach.title = source ? 'Approach active ' + label : 'Select a camera projection or map target first.';
-    }
-  }
-
-  /* ── Runtime Readiness ── */
-  function updateRuntimeHealth(runtime) {
-    appState.monitoring.runtime = runtime;
-    var readiness = runtime && runtime.readiness ? runtime.readiness : {};
-    var flags = readiness.flags || {};
-    var camera = runtime && runtime.camera ? runtime.camera : {};
-    var gimbal = runtime && runtime.gimbal ? runtime.gimbal : {};
-
-    setChip('flag-link', flags.telemetry_link ? 'ok' : 'warn', flags.telemetry_link ? 'Link ready' : 'Link pending');
-    setChip('flag-pose', flags.pose ? 'ok' : 'warn', flags.pose ? 'Pose ready' : 'Pose pending');
-    setChip('flag-preflight', flags.preflight ? 'ok' : 'warn', flags.preflight ? 'Preflight ready' : 'Preflight blocked');
-    setChip('flag-camera', flags.camera ? 'ok' : (camera.enabled ? 'warn' : 'err'), flags.camera ? 'Camera ready' : (camera.enabled ? 'Camera pending' : 'Camera off'));
-    setChip('flag-gimbal', flags.gimbal ? 'ok' : monitorMode(gimbal.status), flags.gimbal ? 'Gimbal ready' : ((gimbal.status || 'unknown') === 'disabled' ? 'Gimbal off' : 'Gimbal pending'));
-    setChip('flag-eval', flags.evaluation ? 'ok' : 'warn', flags.evaluation ? 'Eval ready' : 'Eval pending');
-
-    $('readiness-summary').textContent = readiness.summary || 'Runtime readiness unavailable.';
-  }
-
-  async function refreshMonitoring() {
-    try {
-      updateRuntimeHealth(await fetchJSON('/dashboard/api/runtime-health'));
-    } catch (error) {
-      $('readiness-summary').textContent = error && error.message ? error.message : 'Runtime readiness unavailable.';
-      setChip('flag-link', 'warn', 'Readiness stale');
-    }
-  }
-
-  function startMonitoringPolling() {
-    if (appState.monitoring.pollTimer !== null) window.clearInterval(appState.monitoring.pollTimer);
-    appState.monitoring.pollTimer = window.setInterval(refreshMonitoring, 10000);
-  }
-
   /* ── Events ── */
   function appendEvent(event) {
     const container = $('events');
@@ -1167,8 +282,6 @@ DASHBOARD_HTML = """\
 
     var centerLon = appState.config.geofence_center_lon;
     var centerLat = appState.config.geofence_center_lat;
-    var homeLon = appState.config.px4_home_lon != null ? appState.config.px4_home_lon : centerLon;
-    var homeLat = appState.config.px4_home_lat != null ? appState.config.px4_home_lat : centerLat;
 
     appState.map = new maplibregl.Map({
       container: 'map',
@@ -1188,12 +301,8 @@ DASHBOARD_HTML = """\
     mapTargetEl.style.display = 'none';
 
     appState.homeMarker = new maplibregl.Marker({ element: homeEl, anchor: 'center' })
-      .setLngLat([homeLon, homeLat])
-      .setPopup(
-        new maplibregl.Popup({ closeButton: false }).setHTML(
-          'Home reference<br>' + homeLat.toFixed(6) + ', ' + homeLon.toFixed(6)
-        )
-      )
+      .setLngLat([centerLon, centerLat])
+      .setPopup(new maplibregl.Popup({ closeButton: false }).setHTML('Home'))
       .addTo(appState.map);
 
     appState.droneMarker = new maplibregl.Marker({ element: droneEl, anchor: 'center' })
@@ -1296,7 +405,7 @@ DASHBOARD_HTML = """\
     appState.targetMarker.setLngLat([projection.longitude_deg, projection.latitude_deg]);
     appState.targetMarker.setPopup(
       new maplibregl.Popup({ closeButton: false }).setHTML(
-        'Camera projection<br>' + projection.latitude_deg.toFixed(6) + ', ' + projection.longitude_deg.toFixed(6)
+        'Target<br>' + projection.latitude_deg.toFixed(6) + ', ' + projection.longitude_deg.toFixed(6)
       )
     );
   }
@@ -1307,7 +416,8 @@ DASHBOARD_HTML = """\
     if (!target) {
       if (el) el.style.display = 'none';
       $('map-target-body').textContent = 'Define via map click';
-      updateTargetActionControls();
+      $('map-target-orbit').disabled = true;
+      $('map-target-approach').disabled = true;
       return;
     }
     appState.mapTargetMarker.setLngLat([target.longitude_deg, target.latitude_deg]);
@@ -1318,7 +428,8 @@ DASHBOARD_HTML = """\
       )
     );
     $('map-target-body').textContent = target.latitude_deg.toFixed(6) + ', ' + target.longitude_deg.toFixed(6);
-    updateTargetActionControls();
+    $('map-target-orbit').disabled = appState.commandBusy || appState.selectionBusy;
+    $('map-target-approach').disabled = appState.commandBusy || appState.selectionBusy;
   }
 
   /* ── Config & Boot ── */
@@ -1452,14 +563,14 @@ DASHBOARD_HTML = """\
   function updateSelectionUI() {
     var active = !!(appState.selection && appState.selection.projection);
     $('selection-body').textContent = selectionToSummary(appState.selection);
+    $('orbit-selection').disabled = !active || appState.selectionBusy;
+    $('approach-selection').disabled = !active || appState.selectionBusy;
     setChip('selection-status', active ? 'ok' : '', active ? 'Projected' : 'No target');
     if (active) updateTargetMarker(appState.selection.projection);
-    updateTargetActionControls();
   }
 
   function clearSelection() {
     appState.selection = null;
-    if (appState.activeTargetSource === 'camera') appState.activeTargetSource = appState.mapTarget ? 'map' : null;
     $('selection-box').classList.remove('visible');
     $('selection-box').style.width = '0px';
     $('selection-box').style.height = '0px';
@@ -1548,7 +659,6 @@ DASHBOARD_HTML = """\
         }),
       });
       appState.selection = Object.assign({}, selection, { projection: projection });
-      appState.activeTargetSource = 'camera';
       updateSelectionUI();
       notify('Projected: ' + projection.latitude_deg.toFixed(6) + ', ' + projection.longitude_deg.toFixed(6), 'info');
     } catch (error) {
@@ -1630,6 +740,8 @@ DASHBOARD_HTML = """\
         anchorLabel: 'center',
       });
     });
+    $('orbit-selection').addEventListener('click', function() { runSelectionAction('orbit'); });
+    $('approach-selection').addEventListener('click', function() { runSelectionAction('approach'); });
   }
 
   async function runSelectionAction(kind) {
@@ -1666,7 +778,8 @@ DASHBOARD_HTML = """\
     document.querySelectorAll('.cmd-btn').forEach(function(b) { b.disabled = disabled; });
     document.querySelectorAll('[data-manual-action]').forEach(function(b) { b.disabled = disabled; });
     $('map-target-clear').disabled = disabled;
-    updateTargetActionControls();
+    $('map-target-orbit').disabled = disabled || !appState.mapTarget;
+    $('map-target-approach').disabled = disabled || !appState.mapTarget;
     $('quick-command-submit').disabled = disabled;
     $('assistant-confirm').disabled = disabled || !appState.assistant.pendingPlan;
     updateChatBusyState();
@@ -1722,8 +835,8 @@ DASHBOARD_HTML = """\
 
   function handleCommandClick(commandName) {
     if (commandName === 'orbit') {
-      if (!getActiveTargetSource()) { notify('Select a camera projection or map target before orbit.', 'err'); return; }
-      runActiveTargetAction('orbit');
+      if (!appState.mapTarget) { notify('Select a map target before orbit.', 'err'); return; }
+      runMapTargetAction('orbit');
       return;
     }
     var payload = commandPayloadFor(commandName);
@@ -1968,7 +1081,6 @@ DASHBOARD_HTML = """\
         body: JSON.stringify(target),
       });
       appState.mapTarget = result.target || null;
-      if (appState.mapTarget) appState.activeTargetSource = 'map';
       updateMapTargetMarker(appState.mapTarget);
       updateMapSummary(appState.telemetry || {});
       if (appState.mapTarget) {
@@ -1983,9 +1095,6 @@ DASHBOARD_HTML = """\
     try {
       await fetchJSON('/dashboard/api/target', { method: 'DELETE' });
       appState.mapTarget = null;
-      if (appState.activeTargetSource === 'map') {
-        appState.activeTargetSource = appState.selection && appState.selection.projection ? 'camera' : null;
-      }
       updateMapTargetMarker(null);
       updateMapSummary(appState.telemetry || {});
       notify('Target cleared.', 'info');
@@ -2021,14 +1130,6 @@ DASHBOARD_HTML = """\
     }
   }
 
-  function runActiveTargetAction(kind) {
-    var source = getActiveTargetSource();
-    if (source === 'camera') return runSelectionAction(kind);
-    if (source === 'map') return runMapTargetAction(kind);
-    notify('Select a camera projection or map target first.', 'err');
-    return null;
-  }
-
   /* ── Quick Command Parser ── */
   function executeQuickCommand(text) {
     var normalized = text.trim().toLowerCase();
@@ -2041,15 +1142,15 @@ DASHBOARD_HTML = """\
     if (/rtl|return|come back/.test(normalized)) return sendCommand('rtl');
     if (/hold|hover|stop/.test(normalized))      return sendCommand('hold');
 
-    var takeoffMatch = normalized.match(/take\\s*off(?:\\s+to)?\\s+(\\d+(?:\\.\\d+)?)/);
+    var takeoffMatch = normalized.match(/take\s*off(?:\s+to)?\s+(\d+(?:\.\d+)?)/);
     if (takeoffMatch) {
       return sendCommand('guided_takeoff', { altitude_m: parseFloat(takeoffMatch[1]) });
     }
-    if (/take\\s*off/.test(normalized)) {
+    if (/take\s*off/.test(normalized)) {
       return sendCommand('guided_takeoff', { altitude_m: parseFloat($('p-alt').value) || 5 });
     }
 
-    var gotoMatch = normalized.match(/go\\s+(north|south|east|west)\\s+(\\d+(?:\\.\\d+)?)\\s*(?:meters?|m)?/);
+    var gotoMatch = normalized.match(/go\s+(north|south|east|west)\s+(\d+(?:\.\d+)?)\s*(?:meters?|m)?/);
     if (gotoMatch) {
       var dir = gotoMatch[1];
       var dist = parseFloat(gotoMatch[2]);
@@ -2062,10 +1163,12 @@ DASHBOARD_HTML = """\
     }
 
     if (/circle|orbit/.test(normalized)) {
-      return runActiveTargetAction('orbit');
+      if (appState.mapTarget && /target|map/.test(normalized)) return runMapTargetAction('orbit');
+      return runSelectionAction('orbit');
     }
     if (/approach|inspect/.test(normalized)) {
-      return runActiveTargetAction('approach');
+      if (appState.mapTarget && /target|map/.test(normalized)) return runMapTargetAction('approach');
+      return runSelectionAction('approach');
     }
 
     notify('Unrecognized command: ' + normalized, 'err');
@@ -2320,8 +1423,8 @@ DASHBOARD_HTML = """\
 
   function initMapTargetControls() {
     $('map-target-clear').addEventListener('click', function() { clearMapTarget(); });
-    $('map-target-orbit').addEventListener('click', function() { runActiveTargetAction('orbit'); });
-    $('map-target-approach').addEventListener('click', function() { runActiveTargetAction('approach'); });
+    $('map-target-orbit').addEventListener('click', function() { runMapTargetAction('orbit'); });
+    $('map-target-approach').addEventListener('click', function() { runMapTargetAction('approach'); });
   }
 
 
@@ -2331,8 +1434,8 @@ DASHBOARD_HTML = """\
     if (!dashboard) return;
 
     var colLeft = 320;
-    var colRight = 640;
-    var rowBottom = 350;
+    var colRight = 340;
+    var rowBottom = 280;
     var gap = 16;
 
     var dragVLeft = $('drag-v-left');
@@ -2464,8 +1567,6 @@ DASHBOARD_HTML = """\
       connectEventsSSE();
       loadInitialEvents();
       refreshStatus();
-      refreshMonitoring();
-      startMonitoringPolling();
       updateSelectionUI();
       updateMapTargetMarker(appState.mapTarget);
       updateManualUI();
@@ -2498,7 +1599,3 @@ DASHBOARD_HTML = """\
   initUI();
   connectBackend();
 })();
-</script>
-</body>
-</html>
-"""

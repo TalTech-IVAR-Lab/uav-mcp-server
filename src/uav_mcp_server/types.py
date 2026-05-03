@@ -47,11 +47,25 @@ class OrbitYawBehavior(StrEnum):
     @classmethod
     def parse(cls, raw_val: Any) -> "OrbitYawBehavior":
         if isinstance(raw_val, str):
-            val = raw_val.lower()
-            if val in ("face_center", "center", "face_target", "look_at_target", "hold_front"):
+            val = raw_val.strip().lower().replace("-", "_").replace(" ", "_")
+            if val in (
+                "face_center",
+                "face_centre",
+                "center",
+                "centre",
+                "face_target",
+                "look_at_target",
+                "look_at_center",
+                "look_at_centre",
+                "hold_front",
+                "hold_front_to_center",
+                "hold_front_to_centre",
+            ):
                 return cls.HOLD_FRONT_TO_CIRCLE_CENTER
-            if val in ("forward", "tangent", "hold_front_tangent"):
+            if val in ("forward", "tangent", "hold_front_tangent", "hold_front_tangent_to_circle"):
                 return cls.HOLD_FRONT_TANGENT_TO_CIRCLE
+            if val in ("initial", "initial_heading", "hold_heading", "hold_initial"):
+                return cls.HOLD_INITIAL_HEADING
         return cls(raw_val)
 
 

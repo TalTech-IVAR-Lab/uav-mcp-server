@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 
 from uav_mcp_server.config import Settings
 from uav_mcp_server.navigation import coordinate_offset_m
-from uav_mcp_server.types import TelemetrySnapshot
+from uav_mcp_server.types import OrbitYawBehavior, TelemetrySnapshot
 
 READ_ONLY_COMMANDS = frozenset({"get_status", "get_telemetry"})
 ASSISTANT_ALLOWED_COMMANDS = frozenset(
@@ -150,10 +150,13 @@ def _normalize_calls(calls: list[AssistantToolCall]) -> list[AssistantToolCall]:
             raise ValueError(f"Command '{call.name}' is not allowed in dashboard assistant mode.")
         if not isinstance(call.arguments, dict):
             raise ValueError(f"Command '{call.name}' arguments must be an object.")
+        arguments = dict(call.arguments)
+        if call.name == "orbit" and isinstance(arguments.get("yaw_behavior"), str):
+            arguments["yaw_behavior"] = OrbitYawBehavior.parse(arguments["yaw_behavior"]).value
         normalized.append(
             AssistantToolCall(
                 name=call.name,
-                arguments=call.arguments,
+                arguments=arguments,
                 summary=call.summary or call.name.replace("_", " "),
             )
         )

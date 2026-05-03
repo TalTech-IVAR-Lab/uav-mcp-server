@@ -142,6 +142,45 @@ async def test_dashboard_assistant_prefers_gemini_when_available(monkeypatch) ->
 
 
 @pytest.mark.asyncio
+async def test_dashboard_assistant_normalizes_orbit_yaw_aliases(monkeypatch) -> None:
+    assistant = DashboardAssistant(Settings(_env_file=None, gemini_api_key="test-key"))
+
+    def fake_plan_with_gemini(*args, **kwargs):
+        return type(
+            "GeminiResult",
+            (),
+            {
+                "assistant_text": "Orbit while facing the target.",
+                "calls": [
+                    AssistantToolCall(
+                        name="orbit",
+                        arguments={
+                            "latitude_deg": 46.2332,
+                            "longitude_deg": 6.0557,
+                            "absolute_altitude_m": 150.0,
+                            "radius_m": 12.0,
+                            "velocity_m_s": 3.0,
+                            "yaw_behavior": "face_center",
+                        },
+                        summary="Orbit facing the center.",
+                    )
+                ],
+            },
+        )()
+
+    monkeypatch.setattr(assistant, "_plan_with_gemini", fake_plan_with_gemini)
+
+    result = await assistant.plan(
+        "orbit the visible object",
+        telemetry=_snapshot(),
+        selected_target=AssistantTarget(latitude_deg=46.2332, longitude_deg=6.0557),
+        grounding=_grounding(),
+    )
+
+    assert result.proposed_calls[0].arguments["yaw_behavior"] == "hold_front_to_circle_center"
+
+
+@pytest.mark.asyncio
 async def test_dashboard_assistant_falls_back_when_gemini_errors(monkeypatch) -> None:
     assistant = DashboardAssistant(Settings(_env_file=None, gemini_api_key="test-key"))
 
