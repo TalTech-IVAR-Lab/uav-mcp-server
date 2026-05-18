@@ -114,6 +114,31 @@ OBSERVABILITY_HTML = """\
   .color-yellow { color: var(--yellow); }
   .color-red { color: var(--red); }
   .color-orange { color: var(--orange); }
+  .color-purple { color: var(--purple); }
+
+  .evidence-header {
+    display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-bottom: 12px;
+  }
+  .evidence-kv {
+    border: 1px solid var(--panel-border); background: rgba(255,255,255,0.02);
+    border-radius: var(--radius); padding: 10px;
+  }
+  .evidence-label { color: var(--text-muted); font-size: 10px; text-transform: uppercase; font-weight: 700; }
+  .evidence-value { color: var(--text-main); font-family: var(--font-mono); font-size: 15px; margin-top: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .badge {
+    display: inline-flex; align-items: center; border-radius: 999px; border: 1px solid var(--panel-border);
+    padding: 3px 8px; font-size: 10px; font-weight: 700; text-transform: uppercase;
+  }
+  .badge.good { color: var(--green); border-color: rgba(115,191,105,0.4); background: rgba(115,191,105,0.08); }
+  .badge.warn { color: var(--yellow); border-color: rgba(250,222,42,0.4); background: rgba(250,222,42,0.08); }
+  .badge.bad { color: var(--red); border-color: rgba(242,73,92,0.4); background: rgba(242,73,92,0.08); }
+  .warning-list { display: flex; flex-direction: column; gap: 8px; }
+  .warning-item {
+    border-left: 3px solid var(--yellow); background: rgba(250,222,42,0.06);
+    padding: 8px 10px; color: var(--text-main); font-size: 12px;
+  }
+  .warning-item.critical { border-left-color: var(--red); background: rgba(242,73,92,0.08); }
+  .muted { color: var(--text-muted); }
   
   /* Sparkline Container inside Stat Panel */
   .sparkline-container {
@@ -153,6 +178,10 @@ OBSERVABILITY_HTML = """\
   .bar-gauge-track { flex: 1; height: 12px; background: rgba(255,255,255,0.05); border-radius: 2px; overflow: hidden; margin: 0 12px; }
   .bar-gauge-fill { height: 100%; border-radius: 2px; }
   .bar-gauge-value { width: 50px; text-align: right; font-size: 11px; font-family: var(--font-mono); color: var(--text-muted); }
+
+  @media (max-width: 900px) {
+    .evidence-header { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
   
   /* Scrollbars */
   ::-webkit-scrollbar { width: 8px; height: 8px; }
@@ -184,11 +213,87 @@ OBSERVABILITY_HTML = """\
       </select>
     </div>
     <button id="refresh" class="btn" title="Force Refresh Data">Refresh</button>
+    <a href="/dashboard/api/observability/export" class="btn">Export JSON</a>
     <a href="/dashboard/" class="btn primary">Operator Dashboard</a>
   </div>
 </header>
 
 <main class="dashboard">
+  <!-- THESIS EVIDENCE FIRST: source validity and numbers to cite -->
+  <div class="panel col-8">
+    <div class="panel-header">
+      <div class="panel-title">Thesis Evidence Summary</div>
+      <span id="evidence-badge" class="badge warn">Loading</span>
+    </div>
+    <div class="panel-body">
+      <div class="evidence-header">
+        <div class="evidence-kv">
+          <div class="evidence-label">Latency Run</div>
+          <div id="ev-latency-run" class="evidence-value">--</div>
+        </div>
+        <div class="evidence-kv">
+          <div class="evidence-label">Reliability Run</div>
+          <div id="ev-reliability-run" class="evidence-value">--</div>
+        </div>
+        <div class="evidence-kv">
+          <div class="evidence-label">Safety Run</div>
+          <div id="ev-safety-run" class="evidence-value">--</div>
+        </div>
+        <div class="evidence-kv">
+          <div class="evidence-label">Git / Backend</div>
+          <div id="ev-context" class="evidence-value">--</div>
+        </div>
+      </div>
+      <div class="table-container" style="max-height: 260px;">
+        <table>
+          <thead>
+            <tr>
+              <th>Metric</th>
+              <th>Value</th>
+              <th>Unit</th>
+              <th>Source</th>
+            </tr>
+          </thead>
+          <tbody id="thesis-numbers-table">
+            <tr><td colspan="4" style="text-align:center; color: var(--text-muted);">Waiting for thesis metrics.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel col-4">
+    <div class="panel-header"><div class="panel-title">Evidence Validity Gates</div></div>
+    <div class="panel-body">
+      <div id="validity-list" class="warning-list">
+        <div class="muted">Waiting for validity checks.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel col-12">
+    <div class="panel-header"><div class="panel-title">Benchmark Source Runs</div></div>
+    <div class="panel-body" style="padding: 0;">
+      <div class="table-container">
+        <table>
+          <thead>
+            <tr>
+              <th>Benchmark</th>
+              <th>Run ID</th>
+              <th>Time</th>
+              <th>Backend</th>
+              <th>Git Commit</th>
+              <th>Dirty</th>
+            </tr>
+          </thead>
+          <tbody id="source-runs-table">
+            <tr><td colspan="6" style="text-align:center; color: var(--text-muted);">Waiting for source run data.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
   <!-- ROW 1: KPIs -->
   <div class="panel col-3 stat-panel">
     <div class="panel-header"><div class="panel-title">API Latency (P95)</div></div>
@@ -225,9 +330,9 @@ OBSERVABILITY_HTML = """\
     </div>
   </div>
   
-  <!-- ROW 1.5: AI Metrics -->
+  <!-- Supporting metrics: useful for demos, not core thesis evidence unless assistant behavior is evaluated. -->
   <div class="panel col-6 stat-panel" style="border-top: 2px solid var(--purple);">
-    <div class="panel-header"><div class="panel-title">AI Plan Latency (P95)</div></div>
+    <div class="panel-header"><div class="panel-title">Supporting: AI Plan Latency (P95)</div></div>
     <div class="panel-body">
       <div id="ai-latency" class="stat-value color-purple">--</div>
       <div id="ai-latency-sub" class="stat-sub">Waiting for AI calls...</div>
@@ -235,7 +340,7 @@ OBSERVABILITY_HTML = """\
   </div>
   
   <div class="panel col-6 stat-panel" style="border-top: 2px solid var(--purple);">
-    <div class="panel-header"><div class="panel-title">AI Plan Success Rate</div></div>
+    <div class="panel-header"><div class="panel-title">Supporting: AI Plan Success Rate</div></div>
     <div class="panel-body">
       <div id="ai-success" class="stat-value color-purple">--</div>
       <div id="ai-success-sub" class="stat-sub">Waiting for AI calls...</div>
@@ -262,7 +367,7 @@ OBSERVABILITY_HTML = """\
   </div>
 
   <div class="panel col-4">
-    <div class="panel-header"><div class="panel-title">Manual Override Throughput</div></div>
+    <div class="panel-header"><div class="panel-title">Supporting: Manual Override Throughput</div></div>
     <div class="panel-body">
       <div class="chart-container">
         <canvas id="manualChart"></canvas>
@@ -505,13 +610,86 @@ OBSERVABILITY_HTML = """\
   function fmtMs(v) { return Number.isFinite(v) ? `${v.toFixed(v >= 100 ? 0 : 1)} ms` : '--'; }
   function fmtPct(v) { return Number.isFinite(v) ? `${(v * 100).toFixed(0)}%` : '--'; }
   function text(v, fallback='--') { return v === null || v === undefined || v === '' ? fallback : String(v); }
+  function esc(v) {
+    return text(v).replace(/[&<>"']/g, (ch) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+  }
+  function fmtMetricValue(row) {
+    const value = Number(row.value);
+    if (!Number.isFinite(value)) return '--';
+    if (row.unit === 'ratio') return fmtPct(value);
+    if (row.unit === 'ms') return value.toFixed(value >= 100 ? 0 : 1);
+    if (row.unit === 's') return value.toFixed(value >= 100 ? 0 : 2);
+    return Number.isInteger(value) ? String(value) : value.toFixed(3);
+  }
   
-  function setPill(el, ok, label) {
-    el.className = `status-pill ${ok ? 'ok' : 'err'}`;
+  function setPill(el, ok, label, warn=false) {
+    el.className = `status-pill ${ok ? 'ok' : warn ? 'warn' : 'err'}`;
     el.innerHTML = `<span class="status-dot"></span><span>${label}</span>`;
   }
 
   // --- Rendering Functions ---
+  function renderThesisEvidence(summary) {
+    const tm = summary.thesis_metrics || {};
+    const validity = tm.validity || {};
+    const warnings = validity.warnings || [];
+    const hasCritical = Number(validity.critical_count || 0) > 0;
+    const valid = Boolean(validity.is_valid_evidence);
+    const evidenceBadge = $('evidence-badge');
+    evidenceBadge.className = `badge ${valid ? 'good' : hasCritical ? 'bad' : 'warn'}`;
+    evidenceBadge.textContent = valid ? 'Evidence Valid' : hasCritical ? 'Critical Gaps' : 'Warnings';
+
+    const latencySource = tm.latency?.source_run || {};
+    const reliabilitySource = tm.reliability?.source_run || {};
+    const safetySource = tm.safety?.source_run || {};
+    $('ev-latency-run').textContent = text(latencySource.run_id);
+    $('ev-reliability-run').textContent = text(reliabilitySource.run_id);
+    $('ev-safety-run').textContent = text(safetySource.run_id);
+    const commit = text(latencySource.git_commit || reliabilitySource.git_commit || safetySource.git_commit, 'no commit');
+    const backend = text(latencySource.backend_mode || reliabilitySource.backend_mode || safetySource.backend_mode || summary.runtime?.backend_mode, 'unknown');
+    $('ev-context').textContent = `${commit.slice(0, 8)} / ${backend}`;
+
+    const rows = tm.tables?.thesis_numbers || [];
+    if (rows.length) {
+      $('thesis-numbers-table').innerHTML = rows.map(row => `
+        <tr>
+          <td>${esc(row.metric)}</td>
+          <td class="font-mono">${esc(fmtMetricValue(row))}</td>
+          <td class="font-mono">${esc(row.unit)}</td>
+          <td>${esc(row.source)}</td>
+        </tr>
+      `).join('');
+    } else {
+      $('thesis-numbers-table').innerHTML = `<tr><td colspan="4" style="text-align:center; color: var(--text-muted);">No thesis metrics available.</td></tr>`;
+    }
+
+    if (warnings.length) {
+      $('validity-list').innerHTML = warnings.map(warning => `
+        <div class="warning-item ${warning.severity === 'critical' ? 'critical' : ''}">
+          <div class="font-mono" style="color:${warning.severity === 'critical' ? colors.red : colors.yellow};">${esc(warning.code)}</div>
+          <div>${esc(warning.message)}</div>
+        </div>
+      `).join('');
+    } else {
+      $('validity-list').innerHTML = `<div class="warning-item" style="border-left-color: var(--green); background: rgba(115,191,105,0.08);">No evidence validity warnings.</div>`;
+    }
+
+    const sourceRows = [
+      ['latency', latencySource],
+      ['reliability', reliabilitySource],
+      ['safety', safetySource],
+    ];
+    $('source-runs-table').innerHTML = sourceRows.map(([name, source]) => `
+      <tr>
+        <td>${esc(name)}</td>
+        <td class="font-mono">${esc(source.run_id)}</td>
+        <td class="font-mono">${source.timestamp ? esc(new Date(source.timestamp).toLocaleString()) : '--'}</td>
+        <td>${esc(source.backend_mode)}</td>
+        <td class="font-mono">${esc(source.git_commit)}</td>
+        <td>${source.git_dirty === true ? `<span style="color:${colors.yellow}">yes</span>` : source.git_dirty === false ? `<span style="color:${colors.green}">no</span>` : `<span class="muted">unknown</span>`}</td>
+      </tr>
+    `).join('');
+  }
+
   function renderKPIs(summary) {
     // Latency
     const latency = summary.benchmarks?.latency;
@@ -682,10 +860,17 @@ OBSERVABILITY_HTML = """\
       const eventsData = await eventsReq.json();
       
       // Update Readiness Pill
-      const ready = Boolean(summary.readiness?.ready_for_thesis);
-      setPill($('ready-pill'), ready, ready ? 'Thesis Ready' : 'Incomplete Evidence');
+      const evidenceReady = Boolean(summary.readiness?.evidence_ready);
+      const complete = Boolean(summary.readiness?.ready_for_thesis);
+      setPill(
+        $('ready-pill'),
+        evidenceReady,
+        evidenceReady ? 'Evidence Valid' : complete ? 'Evidence Warnings' : 'Incomplete Evidence',
+        complete
+      );
       
       // Render Static Panels
+      renderThesisEvidence(summary);
       renderKPIs(summary);
       renderAIMetrics(summary);
       renderBarGauges(summary);
