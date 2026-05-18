@@ -22,6 +22,9 @@ from typing import Any
 UTC = timezone.utc
 BENCHMARK_NAMES = ("latency", "reliability", "safety")
 OBSERVABILITY_DB_NAME = "observability.sqlite3"
+MIN_LATENCY_SAMPLES = 30
+MIN_RELIABILITY_ITERATIONS = 5
+MIN_SAFETY_SCENARIOS = 5
 
 
 def now_iso() -> str:
@@ -58,6 +61,55 @@ def _safe_float(value: Any) -> float | None:
     if isinstance(value, (int, float)):
         return float(value)
     return None
+
+
+def _safe_int(value: Any) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    return None
+
+
+def _metadata_env(run: dict[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(run, dict):
+        return {}
+    metadata = run.get("metadata")
+    if not isinstance(metadata, dict):
+        return {}
+    environment = metadata.get("environment")
+    return environment if isinstance(environment, dict) else {}
+
+
+def _metadata_git(run: dict[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(run, dict):
+        return {}
+    metadata = run.get("metadata")
+    if not isinstance(metadata, dict):
+        return {}
+    git = metadata.get("git")
+    return git if isinstance(git, dict) else {}
+
+
+def _source_run(run: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not isinstance(run, dict):
+        return None
+    env = _metadata_env(run)
+    git = _metadata_git(run)
+    return {
+        "run_id": run.get("run_id"),
+        "timestamp": run.get("timestamp"),
+        "json_path": run.get("json_path"),
+        "csv_path": run.get("csv_path"),
+        "backend_mode": env.get("backend_mode"),
+        "git_commit": git.get("commit"),
+        "git_branch": git.get("branch"),
+        "git_dirty": git.get("dirty"),
+    }
+
+
+def _warning(code: str, message: str, *, severity: str = "warning") -> dict[str, str]:
+    return {"code": code, "severity": severity, "message": message}
 
 
 def _json_or_none(value: Any) -> str | None:
@@ -421,6 +473,11 @@ class ObservabilityService:
         reliability_passed = (benchmark_status.get("reliability") or {}).get("passed")
         safety_passed = (benchmark_status.get("safety") or {}).get("passed")
         ready_for_thesis = complete_suite and reliability_passed is True and safety_passed is True
+        thesis_metrics = derive_thesis_metrics(
+            benchmark_status,
+            runtime_health=runtime_health or {},
+            load_errors=errors,
+        )
         return {
             "timestamp": now_iso(),
             "results_dir": str(self.results_dir),
@@ -435,7 +492,10 @@ class ObservabilityService:
                 "has_safety": benchmark_status["safety"] is not None,
                 "reliability_passed": reliability_passed,
                 "safety_passed": safety_passed,
+                "evidence_ready": thesis_metrics["validity"]["is_valid_evidence"],
+                "warning_count": len(thesis_metrics["validity"]["warnings"]),
             },
+            "thesis_metrics": thesis_metrics,
             "runtime": runtime_health or {},
             "events": self.store.summary(),
             "load_errors": errors,
@@ -443,9 +503,11 @@ class ObservabilityService:
 
     def export(self) -> dict[str, Any]:
         runs, errors = self._load_runs()
+        summary = self.summary()
         return {
             "generated_at": now_iso(),
-            "summary": self.summary(),
+            "summary": summary,
+            "thesis_metrics": summary.get("thesis_metrics", {}),
             "runs": runs,
             "events": self.store.recent(limit=1000),
             "load_errors": errors,
@@ -558,12 +620,14 @@ def derive_safety_metrics(records: list[Any], summary: dict[str, Any]) -> dict[s
         for record in records
         if isinstance(record, dict)
     )
+    classifications = [_classify_safety_record(record) for record in records if isinstance(record, dict)]
     by_scenario = {
         str(record.get("scenario") or "unknown"): {
             "passed": record.get("passed"),
             "error_code": record.get("error_code"),
             "expected_error_code": record.get("expected_error_code"),
             "message": record.get("message"),
+            "classification": _classify_safety_record(record),
         }
         for record in records
         if isinstance(record, dict)
@@ -577,7 +641,300 @@ def derive_safety_metrics(records: list[Any], summary: dict[str, Any]) -> dict[s
         "pass_rate": pass_rate,
         "by_error_code": dict(by_error),
         "by_scenario": by_scenario,
+        "false_accept_count": classifications.count("false_accept"),
+        "false_reject_count": classifications.count("false_reject"),
+        "wrong_error_code_count": classifications.count("wrong_error_code"),
     }
+
+
+def _classify_safety_record(record: dict[str, Any]) -> str:
+    expected = record.get("expected_error_code")
+    expected_code = None if expected in {None, "", "none"} else str(expected)
+    actual = record.get("error_code")
+    actual_code = None if actual in {None, "", "none"} else str(actual)
+    success = record.get("success")
+
+    if expected_code is None:
+        if success is False:
+            return "false_reject"
+        return "correct_accept"
+    if success is True:
+        return "false_accept"
+    if actual_code != expected_code:
+        return "wrong_error_code"
+    return "correct_rejection"
+
+
+def derive_thesis_metrics(
+    benchmark_status: dict[str, dict[str, Any] | None],
+    *,
+    runtime_health: dict[str, Any],
+    load_errors: list[dict[str, str]],
+) -> dict[str, Any]:
+    latency_run = benchmark_status.get("latency")
+    reliability_run = benchmark_status.get("reliability")
+    safety_run = benchmark_status.get("safety")
+
+    latency = _derive_thesis_latency(latency_run)
+    reliability = _derive_thesis_reliability(reliability_run)
+    safety = _derive_thesis_safety(safety_run)
+    validity = derive_evidence_validity(
+        benchmark_status,
+        runtime_health=runtime_health,
+        load_errors=load_errors,
+        latency=latency,
+        reliability=reliability,
+        safety=safety,
+    )
+
+    return {
+        "generated_at": now_iso(),
+        "validity": validity,
+        "latency": latency,
+        "reliability": reliability,
+        "safety": safety,
+        "tables": {
+            "latency_by_tool": latency["by_tool_rows"],
+            "reliability_summary": reliability["summary_rows"],
+            "safety_scenarios": safety["scenario_rows"],
+            "thesis_numbers": _thesis_number_rows(latency, reliability, safety),
+        },
+    }
+
+
+def _derive_thesis_latency(run: dict[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(run, dict):
+        return {
+            "available": False,
+            "source_run": None,
+            "latency_ms": latency_stats([]),
+            "by_tool_rows": [],
+            "confirmed_action_latency_ms": latency_stats([]),
+        }
+
+    derived = run.get("derived") if isinstance(run.get("derived"), dict) else {}
+    latency_ms = derived.get("latency_ms") if isinstance(derived.get("latency_ms"), dict) else latency_stats([])
+    by_tool = derived.get("by_tool") if isinstance(derived.get("by_tool"), dict) else {}
+    by_tool_rows = [
+        {
+            "tool": tool,
+            "n": stats.get("count"),
+            "mean_ms": stats.get("mean"),
+            "p50_ms": stats.get("p50"),
+            "p95_ms": stats.get("p95"),
+            "p99_ms": stats.get("p99"),
+            "min_ms": stats.get("min"),
+            "max_ms": stats.get("max"),
+        }
+        for tool, stats in sorted(by_tool.items())
+        if isinstance(stats, dict)
+    ]
+
+    confirmed_values = [
+        latency_ms
+        for record in _load_run_records(run)
+        if record.get("tool") in {"arm", "disarm"}
+        for latency_ms in [_safe_float(record.get("latency_ms"))]
+        if latency_ms is not None
+    ]
+
+    return {
+        "available": True,
+        "source_run": _source_run(run),
+        "sample_count": latency_ms.get("count"),
+        "latency_ms": latency_ms,
+        "by_tool_rows": by_tool_rows,
+        "confirmed_action_latency_ms": latency_stats(confirmed_values),
+        "slowest_samples": derived.get("slowest_samples", []),
+    }
+
+
+def _derive_thesis_reliability(run: dict[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(run, dict):
+        return {
+            "available": False,
+            "source_run": None,
+            "iterations": None,
+            "success_rate": None,
+            "recovery_to_ready_rate": None,
+            "duration_s": latency_stats([]),
+            "summary_rows": [],
+            "failure_categories": {},
+        }
+
+    summary = run.get("summary") if isinstance(run.get("summary"), dict) else {}
+    derived = run.get("derived") if isinstance(run.get("derived"), dict) else {}
+    records = _load_run_records(run)
+    iterations = _safe_int(summary.get("iterations"))
+    ready_count = sum(
+        1
+        for record in records
+        if record.get("final_state") == "ready"
+        and record.get("final_armed") is False
+        and record.get("final_in_air") is False
+    )
+    recovery_rate = round(ready_count / len(records), 3) if records else None
+    failures = [record for record in records if record.get("success") is False]
+    failure_categories = Counter(str(record.get("error") or "unknown") for record in failures)
+    duration_s = derived.get("duration_s") if isinstance(derived.get("duration_s"), dict) else latency_stats([])
+    success_rate = _safe_float(derived.get("success_rate"))
+
+    return {
+        "available": True,
+        "source_run": _source_run(run),
+        "iterations": iterations,
+        "successful_iterations": _safe_int(summary.get("successful_iterations")),
+        "success_rate": success_rate,
+        "recovery_to_ready_rate": recovery_rate,
+        "duration_s": duration_s,
+        "failure_count": len(failures),
+        "failure_categories": dict(failure_categories),
+        "summary_rows": [
+            {"metric": "Nominal mission success rate", "value": success_rate, "unit": "ratio"},
+            {"metric": "Recovery to ready rate", "value": recovery_rate, "unit": "ratio"},
+            {"metric": "Mean run duration", "value": duration_s.get("mean"), "unit": "s"},
+            {"metric": "P95 run duration", "value": duration_s.get("p95"), "unit": "s"},
+        ],
+    }
+
+
+def _derive_thesis_safety(run: dict[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(run, dict):
+        return {
+            "available": False,
+            "source_run": None,
+            "scenario_count": None,
+            "pass_rate": None,
+            "scenario_rows": [],
+            "false_accept_count": 0,
+            "false_reject_count": 0,
+            "wrong_error_code_count": 0,
+        }
+
+    summary = run.get("summary") if isinstance(run.get("summary"), dict) else {}
+    derived = run.get("derived") if isinstance(run.get("derived"), dict) else {}
+    records = _load_run_records(run)
+    scenario_rows = [
+        {
+            "scenario": str(record.get("scenario") or "unknown"),
+            "expected_error_code": record.get("expected_error_code"),
+            "actual_error_code": record.get("error_code"),
+            "passed": record.get("passed"),
+            "classification": _classify_safety_record(record),
+            "message": record.get("message"),
+        }
+        for record in records
+    ]
+
+    return {
+        "available": True,
+        "source_run": _source_run(run),
+        "scenario_count": _safe_int(summary.get("scenario_count")),
+        "passed_scenarios": _safe_int(summary.get("passed_scenarios")),
+        "pass_rate": derived.get("pass_rate"),
+        "by_error_code": derived.get("by_error_code", {}),
+        "scenario_rows": scenario_rows,
+        "false_accept_count": derived.get("false_accept_count", 0),
+        "false_reject_count": derived.get("false_reject_count", 0),
+        "wrong_error_code_count": derived.get("wrong_error_code_count", 0),
+    }
+
+
+def _load_run_records(run: dict[str, Any]) -> list[dict[str, Any]]:
+    json_path_value = run.get("json_path")
+    if not isinstance(json_path_value, str):
+        return []
+    json_path = Path(json_path_value)
+    try:
+        payload = _load_json(json_path)
+    except (OSError, ValueError, json.JSONDecodeError):
+        return []
+    records = payload.get("records")
+    return [record for record in records if isinstance(record, dict)] if isinstance(records, list) else []
+
+
+def derive_evidence_validity(
+    benchmark_status: dict[str, dict[str, Any] | None],
+    *,
+    runtime_health: dict[str, Any],
+    load_errors: list[dict[str, str]],
+    latency: dict[str, Any],
+    reliability: dict[str, Any],
+    safety: dict[str, Any],
+) -> dict[str, Any]:
+    warnings: list[dict[str, str]] = []
+
+    for name in BENCHMARK_NAMES:
+        if benchmark_status.get(name) is None:
+            warnings.append(_warning(f"missing_{name}", f"No latest {name} benchmark artifact was found.", severity="critical"))
+
+    if load_errors:
+        warnings.append(_warning("artifact_load_errors", f"{len(load_errors)} benchmark artifact(s) could not be loaded.", severity="critical"))
+
+    reliability_run = benchmark_status.get("reliability")
+    safety_run = benchmark_status.get("safety")
+    if isinstance(reliability_run, dict) and reliability_run.get("passed") is False:
+        warnings.append(_warning("reliability_failed", "The latest reliability benchmark failed.", severity="critical"))
+    if isinstance(safety_run, dict) and safety_run.get("passed") is False:
+        warnings.append(_warning("safety_failed", "The latest safety benchmark failed.", severity="critical"))
+
+    latency_n = _safe_int(latency.get("sample_count"))
+    if latency_n is not None and latency_n < MIN_LATENCY_SAMPLES:
+        warnings.append(_warning("low_latency_sample_count", f"Latency has n={latency_n}; target at least {MIN_LATENCY_SAMPLES} samples."))
+
+    iterations = _safe_int(reliability.get("iterations"))
+    if iterations is not None and iterations < MIN_RELIABILITY_ITERATIONS:
+        warnings.append(_warning("low_reliability_iterations", f"Reliability has {iterations} iteration(s); target at least {MIN_RELIABILITY_ITERATIONS}."))
+
+    scenario_count = _safe_int(safety.get("scenario_count"))
+    if scenario_count is not None and scenario_count < MIN_SAFETY_SCENARIOS:
+        warnings.append(_warning("low_safety_coverage", f"Safety covers {scenario_count} scenario(s); target at least {MIN_SAFETY_SCENARIOS}."))
+
+    for name, run in benchmark_status.items():
+        if not isinstance(run, dict):
+            continue
+        git = _metadata_git(run)
+        env = _metadata_env(run)
+        if not git.get("commit"):
+            warnings.append(_warning(f"{name}_missing_git_commit", f"{name} run is missing a git commit."))
+        if git.get("dirty") is True:
+            warnings.append(_warning(f"{name}_dirty_git", f"{name} run was captured from a dirty worktree."))
+        if str(env.get("backend_mode") or "").lower() in {"mock", "local"}:
+            warnings.append(_warning(f"{name}_non_live_backend", f"{name} run used backend_mode={env.get('backend_mode')}.", severity="critical"))
+
+    runtime_mode = str(runtime_health.get("backend_mode") or "").lower()
+    if runtime_mode in {"mock", "local"}:
+        warnings.append(_warning("runtime_non_live_backend", f"Current runtime uses backend_mode={runtime_health.get('backend_mode')}."))
+
+    has_critical = any(warning["severity"] == "critical" for warning in warnings)
+    return {
+        "is_valid_evidence": not has_critical,
+        "critical_count": sum(1 for warning in warnings if warning["severity"] == "critical"),
+        "warning_count": len(warnings),
+        "warnings": warnings,
+    }
+
+
+def _thesis_number_rows(latency: dict[str, Any], reliability: dict[str, Any], safety: dict[str, Any]) -> list[dict[str, Any]]:
+    latency_ms = latency.get("latency_ms") if isinstance(latency.get("latency_ms"), dict) else {}
+    confirmed_ms = (
+        latency.get("confirmed_action_latency_ms")
+        if isinstance(latency.get("confirmed_action_latency_ms"), dict)
+        else {}
+    )
+    duration_s = reliability.get("duration_s") if isinstance(reliability.get("duration_s"), dict) else {}
+    return [
+        {"metric": "Tool-call latency mean", "value": latency_ms.get("mean"), "unit": "ms", "source": "latency"},
+        {"metric": "Tool-call latency p95", "value": latency_ms.get("p95"), "unit": "ms", "source": "latency"},
+        {"metric": "Tool-call latency p99", "value": latency_ms.get("p99"), "unit": "ms", "source": "latency"},
+        {"metric": "Confirmed arm/disarm latency mean", "value": confirmed_ms.get("mean"), "unit": "ms", "source": "latency"},
+        {"metric": "Nominal mission success rate", "value": reliability.get("success_rate"), "unit": "ratio", "source": "reliability"},
+        {"metric": "Recovery to ready rate", "value": reliability.get("recovery_to_ready_rate"), "unit": "ratio", "source": "reliability"},
+        {"metric": "Nominal mission mean duration", "value": duration_s.get("mean"), "unit": "s", "source": "reliability"},
+        {"metric": "Safety rejection correctness rate", "value": safety.get("pass_rate"), "unit": "ratio", "source": "safety"},
+        {"metric": "Safety false accepts", "value": safety.get("false_accept_count"), "unit": "count", "source": "safety"},
+        {"metric": "Safety wrong error codes", "value": safety.get("wrong_error_code_count"), "unit": "count", "source": "safety"},
+    ]
 
 
 def benchmark_headline(
