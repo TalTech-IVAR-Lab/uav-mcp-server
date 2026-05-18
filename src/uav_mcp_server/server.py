@@ -40,7 +40,8 @@ from uav_mcp_server.navigation import coordinate_offset_m
 from uav_mcp_server.navigation import haversine_distance_m
 from uav_mcp_server.observability import ObservabilityEvent, ObservabilityService, now_iso
 from uav_mcp_server.projection import CameraParams, DronePose, pixel_to_world
-from uav_mcp_server.safety import SafetyValidator
+from uav_mcp_server.command_queue import CommandQueue, QueueEntry
+from uav_mcp_server.safety import RATE_LIMIT_EXEMPT_COMMANDS, SafetyValidator
 from uav_mcp_server.telemetry import TelemetryManager
 from uav_mcp_server.types import (
     CommandResult,
@@ -61,6 +62,7 @@ SERVER_INSTRUCTIONS = (
 
 UTC = timezone.utc
 BENCHMARK_NAMES = ("latency", "reliability", "safety")
+QUEUE_BYPASS_COMMANDS = RATE_LIMIT_EXEMPT_COMMANDS
 RUN_TIMESTAMP_PATTERN = re.compile(r"-(\d{8}T\d{6}Z)$")
 
 
@@ -362,6 +364,10 @@ def create_server(
     manual_window: deque[float] = deque()
     repo_root = _server_repo_root()
     observability = ObservabilityService(repo_root)
+    command_queue = CommandQueue(
+        max_depth=resolved_services.settings.command_queue_max_depth,
+        rate_limit_per_sec=resolved_services.settings.command_rate_limit_per_sec,
+    )
     local_backend_active = isinstance(getattr(resolved_services.controller, "_backend", None), LocalSimulationBackend)
     gimbal_state: dict[str, Any]
     if not resolved_services.settings.manual_control_supports_gimbal_pitch:
@@ -669,7 +675,7 @@ def create_server(
             )
         )
 
-    async def _observed_command(
+    async def _execute_observed(
         command_name: str,
         params: dict[str, Any],
         runner: Any,
@@ -703,6 +709,41 @@ def create_server(
             telemetry_before=telemetry_before,
         )
         return result
+
+    async def _observed_command(
+        command_name: str,
+        params: dict[str, Any],
+        runner: Any,
+        *,
+        source: str = "mcp",
+        validate_params: dict[str, Any] | None = None,
+    ) -> CommandResult:
+        if (
+            not resolved_services.settings.command_queue_enabled
+            or command_name in QUEUE_BYPASS_COMMANDS
+            or source != "mcp"
+        ):
+            return await _execute_observed(
+                command_name, params, runner, source=source, validate_params=validate_params
+            )
+
+        # Eager pre-validate: catch wrong-state errors immediately; skip rate limit
+        # since the queue worker paces execution to respect the rate window.
+        pre_params = {**(validate_params if validate_params is not None else params), "enforce_rate_limit": False}
+        violation = validate(command_name, **pre_params)
+        if violation is not None:
+            return violation
+
+        future: asyncio.Future[CommandResult] = asyncio.get_running_loop().create_future()
+        entry = QueueEntry(
+            command_name=command_name,
+            runner=lambda: _execute_observed(
+                command_name, params, runner, source=source, validate_params=validate_params
+            ),
+            future=future,
+            source=source,
+        )
+        return await command_queue.enqueue(entry)
 
     async def _command_manifest() -> list[dict[str, Any]]:
         return build_command_manifest(await mcp.list_tools())
@@ -957,6 +998,29 @@ def create_server(
         )
         return result
 
+    @mcp.tool(
+        title="Queue Control",
+        description=(
+            "Inspect or manage the server-side command queue. "
+            "action='status' returns current depth and worker state; "
+            "action='clear' cancels all pending (not yet executing) commands."
+        ),
+        annotations=ToolAnnotations(title="Queue Control", readOnlyHint=False),
+    )
+    async def queue_control(action: str = "status") -> CommandResult:
+        if action == "status":
+            return CommandResult.ok("Queue status retrieved.", data=command_queue.status())
+        if action == "clear":
+            result = await command_queue.stop_and_clear()
+            return CommandResult.ok(
+                f"Queue cleared: {result['cleared_count']} command(s) cancelled.",
+                data=result,
+            )
+        return CommandResult.fail(
+            f"Unknown action '{action}'. Use 'status' or 'clear'.",
+            ErrorCode.INVALID_PARAMS,
+        )
+
     @mcp.resource(
         "uav://status/state",
         title="Vehicle State",
@@ -1087,6 +1151,7 @@ def create_server(
         "orbit": orbit,
         "get_status": get_status,
         "get_telemetry": get_telemetry,
+        "queue_control": queue_control,
     }
 
     async def _dashboard_validate_and_run(command_name: str, params: dict[str, Any]) -> CommandResult:
@@ -1812,6 +1877,8 @@ def create_server(
         manual_gimbal_pitch=_dashboard_manual_gimbal_pitch,
         target_orbit=_dashboard_target_orbit,
         camera_streamer=camera_streamer,
+        queue_status=command_queue.status,
+        queue_clear=command_queue.stop_and_clear,
     )
     register_dashboard_routes(mcp, dashboard_state)
 

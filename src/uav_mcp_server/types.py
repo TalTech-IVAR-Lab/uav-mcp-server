@@ -35,6 +35,8 @@ class ErrorCode(StrEnum):
     LOW_BATTERY = "low_battery"
     NOT_IMPLEMENTED = "not_implemented"
     INVALID_PARAMS = "invalid_params"
+    QUEUE_FULL = "queue_full"
+    QUEUE_CANCELLED = "queue_cancelled"
 
 
 class OrbitYawBehavior(StrEnum):

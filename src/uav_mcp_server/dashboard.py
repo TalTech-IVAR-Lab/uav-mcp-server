@@ -402,6 +402,8 @@ class DashboardState:
     target_orbit: Any | None = None  # async (dict[str, Any]) -> CommandResult
     selected_target: dict[str, Any] | None = None
     camera_streamer: Any | None = None
+    queue_status: Any | None = None  # Callable[[], dict[str, Any]]
+    queue_clear: Any | None = None   # async Callable[[], dict[str, Any]]
     event_log: EventLog = field(default_factory=EventLog)
 
 
@@ -442,6 +444,21 @@ def register_dashboard_routes(mcp: Any, state: DashboardState) -> None:
         if state.get_evaluation_summary is None:
             return JSONResponse({"summary_line": "Evaluation summary is unavailable."}, status_code=200)
         return JSONResponse(state.get_evaluation_summary())
+
+    @mcp.custom_route("/dashboard/api/queue", methods=["GET"])
+    async def dashboard_api_queue_status(request: Request) -> Response:
+        del request
+        if state.queue_status is None:
+            return JSONResponse({"enabled": False}, status_code=200)
+        return JSONResponse(state.queue_status())
+
+    @mcp.custom_route("/dashboard/api/queue/clear", methods=["POST"])
+    async def dashboard_api_queue_clear(request: Request) -> Response:
+        del request
+        if state.queue_clear is None:
+            return JSONResponse({"cleared_count": 0, "cancelled_commands": []}, status_code=200)
+        result = await state.queue_clear()
+        return JSONResponse(result)
 
     @mcp.custom_route("/dashboard/api/observability/summary", methods=["GET"])
     async def dashboard_api_observability_summary(request: Request) -> Response:

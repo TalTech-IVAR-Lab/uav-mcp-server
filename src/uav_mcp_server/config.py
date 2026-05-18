@@ -89,6 +89,8 @@ class Settings(BaseSettings):
     default_takeoff_altitude_m: float = Field(default=10.0, gt=0)
     default_mission_speed_m_s: float = Field(default=6.0, gt=0)
     command_rate_limit_per_sec: int = Field(default=2, ge=1)
+    command_queue_enabled: bool = Field(default=True)
+    command_queue_max_depth: int = Field(default=10, ge=1)
     assistant_enabled: bool = Field(default=True)
     assistant_model: str = Field(default="gemini-2.5-flash")
     assistant_temperature: float = Field(default=0.1, ge=0.0, le=2.0)

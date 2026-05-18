@@ -51,6 +51,7 @@ async def test_server_registers_expected_tools_and_resources() -> None:
         "run_mission",
         "get_status",
         "get_telemetry",
+        "queue_control",
     }
     assert resource_uris == {
         "uav://status/state",

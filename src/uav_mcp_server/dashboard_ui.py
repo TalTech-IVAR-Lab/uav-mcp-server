@@ -611,7 +611,6 @@ DASHBOARD_HTML = """\
 <div class="shell">
   <header class="topbar">
     <div class="title-block">
-      <div class="eyebrow">Advanced Operator Surface</div>
       <h1>UAV MCP Interface</h1>
     </div>
     <div class="status-strip">
