@@ -3,7 +3,7 @@
 set -euo pipefail
 
 sitl_supported_models() {
-  printf '%s\n' "gz_x500 gazebo-classic gazebo-classic_typhoon_h480 gazebo-classic_iris_fpv_cam"
+  printf '%s\n' "gz_x500 gz_x500_mono_cam gz_x500_gimbal gazebo-classic gazebo-classic_typhoon_h480 gazebo-classic_iris_fpv_cam"
 }
 
 sitl_has_gz_harmonic_stack() {
@@ -24,7 +24,7 @@ sitl_model_runtime() {
   local model="$1"
 
   case "$model" in
-    gz_x500)
+    gz_x500|gz_x500_mono_cam|gz_x500_gimbal)
       printf '%s\n' "harmonic"
       ;;
     gazebo-classic|gazebo-classic_typhoon_h480|gazebo-classic_iris_fpv_cam)
@@ -44,6 +44,12 @@ sitl_make_target() {
   case "$model" in
     gz_x500)
       printf '%s\n' "gz_x500"
+      ;;
+    gz_x500_mono_cam)
+      printf '%s\n' "gz_x500_mono_cam"
+      ;;
+    gz_x500_gimbal)
+      printf '%s\n' "gz_x500_gimbal"
       ;;
     gazebo-classic)
       printf '%s\n' "gazebo-classic_typhoon_h480"

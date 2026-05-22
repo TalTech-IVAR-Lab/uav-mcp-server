@@ -45,6 +45,21 @@ TYPHOON_H480_PROFILE = Px4ModelProfile(
     supports_gimbal_pitch=True,
     supports_gimbal_yaw=True,
 )
+# gz_x500_gimbal: x500 base + the PX4 'gimbal' include (CGO3-style 3-axis).
+# Camera sensor is named "camera" (not "imager" like mono_cam) and lives on
+# camera_link, so the gz transport topic ends in /camera_link/sensor/camera/image.
+# Focal length = width_px / (2 * tan(hfov/2)) = 1280 / (2 * tan(1.0)) ≈ 410.94.
+X500_GIMBAL_PROFILE = Px4ModelProfile(
+    model="gz_x500_gimbal",
+    camera_gazebo_topic_suffix="/camera_link/sensor/camera/image",
+    camera_width_px=1280,
+    camera_height_px=720,
+    camera_hfov_rad=2.0,
+    camera_focal_length_px=410.93927419797172,
+    camera_stabilized=True,
+    supports_gimbal_pitch=True,
+    supports_gimbal_yaw=True,
+)
 
 
 def normalize_px4_model_name(model: str | None) -> str:
@@ -60,11 +75,20 @@ def px4_model_profile(model: str | None) -> Px4ModelProfile | None:
         return IRIS_FPV_CAM_PROFILE
     if normalized in {TYPHOON_H480_PROFILE.model, "typhoon_h480"}:
         return TYPHOON_H480_PROFILE
+    if normalized in {X500_GIMBAL_PROFILE.model, "x500_gimbal"}:
+        return X500_GIMBAL_PROFILE
     return None
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
+    # extra="ignore" lets the shared .env carry shell-launcher keys
+    # (SIM_GZ_SPAWN_*_M, etc.) without the server treating them as unknown
+    # settings and refusing to start.
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
 
     backend_mode: Literal["live", "local"] = Field(default="live")
     px4_model: str = Field(default="")
@@ -126,6 +150,18 @@ class Settings(BaseSettings):
     camera_mount_yaw_deg: float = Field(default=0.0)
     camera_mount_pitch_deg: float = Field(default=0.0)
     camera_mount_roll_deg: float = Field(default=0.0)
+    # MAVSDK exposes the gimbal attitude reported by the autopilot. Whether
+    # that yaw value is expressed in the vehicle frame (yaw=0 → camera aligned
+    # with vehicle nose) or the earth/NED frame (yaw=0 → camera pointing north)
+    # depends on the MNT driver configuration. The simulated CGO3 in PX4's
+    # gz_x500_gimbal model defaults to vehicle frame. Set this to "earth" to
+    # have the projection layer subtract the vehicle heading before applying.
+    camera_gimbal_yaw_frame: Literal["vehicle", "earth"] = Field(default="vehicle")
+    # Sign of MAVSDK gimbal pitch. PX4 v1.14+ reports pitch with positive=up;
+    # older firmwares (and some third-party gimbal devices) use positive=down.
+    # The projection math assumes positive=up. Set to -1.0 to flip if you
+    # see an inverted pitch response empirically.
+    camera_gimbal_pitch_sign: float = Field(default=1.0)
     log_level: str = Field(default="INFO")
 
     @model_validator(mode="after")

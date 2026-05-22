@@ -16,16 +16,37 @@ SITL_PID_FILE="$RUN_DIR/sitl.pid"
 SERVER_PID_FILE="$RUN_DIR/server.pid"
 SITL_EXTRA_PIDS_FILE="$RUN_DIR/sitl-extra.pids"
 FORCE_CLEAN=0
+RESET_PX4=0
 
-if [ "${1:-}" = "--force" ]; then
-  FORCE_CLEAN=1
-  shift
-fi
-
-if [ "$#" -ne 0 ]; then
-  echo "Usage: $0 [--force]" >&2
-  exit 2
-fi
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --force)
+      FORCE_CLEAN=1
+      shift
+      ;;
+    --reset-px4)
+      # Wipe PX4 SITL's persisted runtime state (parameters.bson, dataman,
+      # logs, eeprom) so the next launch starts from airframe defaults.
+      # Use after a SITL crash / tip / failsafe poisoned MPC_THR_HOVER,
+      # EKF2 yaw, or commander prearm state and arming starts failing
+      # across restarts. The PX4 build itself is preserved.
+      RESET_PX4=1
+      shift
+      ;;
+    -h|--help)
+      sed -n '1p;/^# Usage/,/^$/p' "$0" >/dev/null  # placeholder, see message
+      echo "Usage: $0 [--force] [--reset-px4]" >&2
+      echo "  --force      Also kill orphaned sim/MAVSDK/Gazebo processes by port/pattern." >&2
+      echo "  --reset-px4  After stopping, wipe PX4 SITL rootfs runtime state" >&2
+      echo "               (parameters.bson, parameters_backup.bson, dataman, log/, eeprom/)." >&2
+      exit 0
+      ;;
+    *)
+      echo "Usage: $0 [--force] [--reset-px4]" >&2
+      exit 2
+      ;;
+  esac
+done
 
 stop_process_group() {
   local label="$1"
@@ -194,4 +215,25 @@ if [ "$FORCE_CLEAN" -eq 1 ]; then
   fi
 
   stop_matching_processes "Repo Gazebo Classic world" "$SIM_CLASSIC_WORLD_DIR/"
+fi
+
+if [ "$RESET_PX4" -eq 1 ]; then
+  rootfs="$PX4_DIR/build/px4_sitl_default/rootfs"
+  if [ ! -d "$rootfs" ]; then
+    echo "PX4 rootfs not found at $rootfs; nothing to reset." >&2
+  else
+    # Sanity: do not reset while any PX4 process still references the rootfs.
+    # We already stopped above, but in --reset-px4 without --force a stray
+    # process could still hold the params file open — refuse to corrupt it.
+    if pgrep -f "$rootfs/bin/px4\|$PX4_DIR/build/px4_sitl_default/bin/px4" >/dev/null 2>&1; then
+      echo "Refusing to reset PX4 rootfs: a px4 process is still running." >&2
+      echo "Re-run with --force --reset-px4 to terminate it first." >&2
+      exit 1
+    fi
+    echo "Resetting PX4 rootfs runtime state under $rootfs"
+    rm -f "$rootfs/parameters.bson" \
+          "$rootfs/parameters_backup.bson" \
+          "$rootfs/dataman"
+    rm -rf "$rootfs/log" "$rootfs/eeprom"
+  fi
 fi

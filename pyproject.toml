@@ -28,6 +28,11 @@ terrain = [
   "geopy>=2.4.1",
   "mercantile>=1.2.0",
   "opencv-python-headless>=4.11.0",
+  # Pillow + numpy back the runtime heightmap sampler used for camera
+  # target projection (uav_mcp_server.terrain). Optional: if absent the
+  # projection silently falls back to a flat-ground assumption.
+  "pillow>=10.0.0",
+  "numpy>=1.26.0",
 ]
 dev = [
   "pytest>=8.3.0",

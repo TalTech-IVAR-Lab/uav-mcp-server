@@ -104,12 +104,66 @@ class MavsdkBackend:
         self._system = System()
         self._last_known_gimbal_pitch_deg: float | None = self._GIMBAL_PITCH_NEUTRAL_DEG
         self._last_known_gimbal_yaw_deg: float = self._FORWARD_FACING_GIMBAL_YAW_DEG
+        # Updated by the background gimbal_attitude consumer below — separate
+        # from `_last_known_gimbal_pitch_deg` so we can fall back to the
+        # commanded target when the stream isn't producing yet.
+        self._actual_gimbal_pitch_deg: float | None = None
+        self._actual_gimbal_yaw_deg: float | None = None
+        self._gimbal_attitude_task: Any | None = None  # asyncio.Task | None
 
     async def connect(self, connection_string: str) -> None:
         await self._system.connect(system_address=self._normalize_connection_string(connection_string))
         async for connection_state in self._system.core.connection_state():
             if connection_state.is_connected:
+                self._start_gimbal_attitude_consumer()
                 return
+
+    def _start_gimbal_attitude_consumer(self) -> None:
+        """Spawn a background task that mirrors the gimbal's *actual* pitch.
+
+        The MAVSDK ``gimbal.attitude()`` stream reports the live joint angles
+        the autopilot is reading back from the simulator. Using it for camera
+        projection eliminates the lag between commanding a pitch and the
+        physical joint settling — that lag is the dominant error source for
+        off-centre pixel selection (a 5° pitch error becomes ~9 m at 100 m
+        ground distance).
+        """
+        import asyncio
+
+        if self._gimbal_attitude_task is not None and not self._gimbal_attitude_task.done():
+            return
+
+        async def _consume() -> None:
+            try:
+                async for attitude in self._system.gimbal.attitude():
+                    pitch_deg = getattr(attitude, "pitch_deg", None)
+                    yaw_deg = getattr(attitude, "yaw_deg", None)
+                    if pitch_deg is None or yaw_deg is None:
+                        forward = getattr(attitude, "euler_angle_forward", None)
+                        if forward is not None:
+                            pitch_deg = pitch_deg if pitch_deg is not None else getattr(forward, "pitch_deg", None)
+                            yaw_deg = yaw_deg if yaw_deg is not None else getattr(forward, "yaw_deg", None)
+                    if pitch_deg is not None:
+                        self._actual_gimbal_pitch_deg = float(pitch_deg)
+                        # Keep the legacy `_last_known_*` cache in sync so any
+                        # call site that still reads the commanded target falls
+                        # forward onto the live value once the stream is hot.
+                        self._last_known_gimbal_pitch_deg = float(pitch_deg)
+                    if yaw_deg is not None:
+                        self._actual_gimbal_yaw_deg = float(yaw_deg)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                # MAVSDK stream can disconnect on PX4 reboot; swallow and let
+                # the next connect() call respawn this task. Projection will
+                # transparently fall back to the commanded-target heuristic.
+                return
+
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        self._gimbal_attitude_task = loop.create_task(_consume())
 
     async def arm(self) -> None:
         await self._system.action.arm()
@@ -370,10 +424,38 @@ class MavsdkBackend:
         return pitch_deg
 
     def current_gimbal_pitch_deg(self) -> float:
+        # Prefer the live attitude stream (actual joint pose) over the cached
+        # commanded target. The stream takes ~1 s after connect to start;
+        # before then we fall back to the last-commanded value, which the
+        # gimbal will be moving toward. ``getattr`` keeps tests that build a
+        # bare instance via ``object.__new__`` working without re-running
+        # ``__init__`` defaults.
+        actual = getattr(self, "_actual_gimbal_pitch_deg", None)
+        if actual is not None:
+            return actual
         return self._last_known_gimbal_pitch_deg_or_neutral()
 
     def current_gimbal_yaw_deg(self) -> float:
+        # Gimbal yaw control is intentionally disabled (see
+        # ``gimbal_yaw_relative`` above): the camera is mechanically locked
+        # to the vehicle nose. The MAVSDK ``euler_angle_forward.yaw_deg``
+        # value drifts under physics (the gz yaw joint settles wherever the
+        # PID happens to converge, often tens of degrees off vehicle
+        # forward) and using it for projection rotates the click ray by
+        # exactly that drift. Always return 0 so the projection treats the
+        # camera as nose-aligned, which matches the user-visible contract.
+        # The raw live value remains available via
+        # ``observed_gimbal_yaw_deg`` for the dashboard diagnostic line.
         return self._FORWARD_FACING_GIMBAL_YAW_DEG
+
+    def observed_gimbal_yaw_deg(self) -> float | None:
+        """Live gimbal yaw from the MAVSDK attitude stream, in degrees.
+
+        Returned for diagnostics only. The projection layer must continue to
+        use ``current_gimbal_yaw_deg`` (which assumes 0 because we don't
+        command yaw).
+        """
+        return getattr(self, "_actual_gimbal_yaw_deg", None)
 
     def _last_known_gimbal_pitch_deg_or_neutral(self) -> float:
         if self._last_known_gimbal_pitch_deg is None:
@@ -424,6 +506,13 @@ class DroneController:
 
     def current_gimbal_yaw_deg(self) -> float:
         return self._backend.current_gimbal_yaw_deg()
+
+    def observed_gimbal_yaw_deg(self) -> float | None:
+        """Live gimbal yaw from the backend, for diagnostics only."""
+        observed = getattr(self._backend, "observed_gimbal_yaw_deg", None)
+        if observed is None:
+            return None
+        return observed()
 
     async def connect(self, connection_string: str | None = None) -> CommandResult:
         resolved_connection_string = connection_string or self._settings.px4_connection_string

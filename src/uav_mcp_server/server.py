@@ -40,6 +40,7 @@ from uav_mcp_server.navigation import coordinate_offset_m
 from uav_mcp_server.navigation import haversine_distance_m
 from uav_mcp_server.observability import ObservabilityEvent, ObservabilityService, now_iso
 from uav_mcp_server.projection import CameraParams, DronePose, pixel_to_world
+from uav_mcp_server.terrain import HeightmapSpec, TerrainSampler
 from uav_mcp_server.command_queue import CommandQueue, QueueEntry
 from uav_mcp_server.safety import RATE_LIMIT_EXEMPT_COMMANDS, SafetyValidator
 from uav_mcp_server.telemetry import TelemetryManager
@@ -319,6 +320,64 @@ def create_server(
         mount_pitch_deg=resolved_services.settings.camera_mount_pitch_deg,
         mount_roll_deg=resolved_services.settings.camera_mount_roll_deg,
     )
+    # Best-effort: replace the .env intrinsics with what gz is actually
+    # rendering. gz publishes the K matrix on each camera's camera_info topic
+    # — using it eliminates drift between SDF hfov, .env values, and the
+    # renderer. Failures (no `gz` CLI on PATH, sim not running, topic timeout)
+    # silently fall back to the .env-derived params above.
+    try:
+        from uav_mcp_server.camera_intrinsics import probe_camera_intrinsics_via_gz
+
+        live_intrinsics = probe_camera_intrinsics_via_gz(
+            gazebo_topic_suffix=resolved_services.settings.camera_gazebo_topic_suffix,
+            timeout_s=3.0,
+        )
+        if live_intrinsics is not None:
+            camera_params = CameraParams(
+                width_px=live_intrinsics["width_px"],
+                height_px=live_intrinsics["height_px"],
+                hfov_rad=camera_params.hfov_rad,  # not in K, keep .env
+                focal_length_px=live_intrinsics["fx"],
+                mount_yaw_deg=camera_params.mount_yaw_deg,
+                mount_pitch_deg=camera_params.mount_pitch_deg,
+                mount_roll_deg=camera_params.mount_roll_deg,
+                principal_x_px=live_intrinsics["cx"],
+                principal_y_px=live_intrinsics["cy"],
+            )
+            import logging as _logging
+            _logging.getLogger(__name__).info(
+                "Camera intrinsics loaded from gz camera_info: "
+                "fx=%.3f fy=%.3f cx=%.1f cy=%.1f %dx%d",
+                live_intrinsics["fx"], live_intrinsics["fy"],
+                live_intrinsics["cx"], live_intrinsics["cy"],
+                live_intrinsics["width_px"], live_intrinsics["height_px"],
+            )
+    except Exception as intrinsics_exc:  # noqa: BLE001
+        import logging as _logging
+        _logging.getLogger(__name__).debug(
+            "Live camera intrinsics probe failed (%s); using .env values.",
+            intrinsics_exc,
+        )
+    # Optional terrain-aware projection: loads the TalTech heightmap PNG so
+    # camera target selection iterates against the real ground elevation
+    # instead of assuming flat ground at home altitude. Missing PNG or
+    # missing Pillow falls back silently to the flat-ground path.
+    terrain_sampler: TerrainSampler | None
+    try:
+        from pathlib import Path
+        repo_root = Path(__file__).resolve().parents[2]
+        spec = HeightmapSpec.taltech_default(repo_root)
+        if spec.png_path.exists():
+            terrain_sampler = TerrainSampler(spec)
+        else:
+            terrain_sampler = None
+    except Exception as terrain_exc:  # noqa: BLE001 - intentionally broad
+        import logging as _logging
+        _logging.getLogger(__name__).warning(
+            "Terrain sampler unavailable, falling back to flat-ground projection: %s",
+            terrain_exc,
+        )
+        terrain_sampler = None
     mcp = FastMCP(
         name="UAV Control Server",
         instructions=SERVER_INSTRUCTIONS,
@@ -1239,9 +1298,29 @@ def create_server(
             v = float(params["v"])
         except (KeyError, TypeError, ValueError) as exc:
             raise ValueError("Projection requires numeric 'u' and 'v' pixel coordinates.") from exc
-        gimbal_pitch_deg = resolved_services.controller.current_gimbal_pitch_deg()
+        raw_gimbal_pitch_deg = resolved_services.controller.current_gimbal_pitch_deg()
+        # ``current_gimbal_yaw_deg`` is the value the projection trusts — for
+        # the gz_x500_gimbal setup it's hard-zeroed because we don't command
+        # yaw. ``observed_gimbal_yaw_deg`` is the live MAVSDK reading,
+        # surfaced only for the diagnostic block in the response so the
+        # operator can see whether the joint is drifting.
         gimbal_yaw_deg = resolved_services.controller.current_gimbal_yaw_deg()
+        observed_gimbal_yaw_deg = resolved_services.controller.observed_gimbal_yaw_deg()
         pose = current_drone_pose()
+
+        # Normalise gimbal pitch sign so positive=up matches the projection
+        # rotation convention. Configurable for firmwares that report the
+        # opposite sign.
+        gimbal_pitch_deg = raw_gimbal_pitch_deg * resolved_services.settings.camera_gimbal_pitch_sign
+
+        # If the autopilot reports gimbal yaw in earth/NED frame, subtract
+        # the vehicle heading to recover the vehicle-frame gimbal yaw the
+        # projection math expects. Only meaningful when the project trusts
+        # the live gimbal yaw value — in this codebase yaw is locked to 0,
+        # but the knob is preserved for future setups that do command yaw.
+        if resolved_services.settings.camera_gimbal_yaw_frame == "earth":
+            gimbal_yaw_deg = gimbal_yaw_deg - pose.yaw_deg
+
         effective_params = CameraParams(
             width_px=camera_params.width_px,
             height_px=camera_params.height_px,
@@ -1250,10 +1329,22 @@ def create_server(
             mount_yaw_deg=camera_params.mount_yaw_deg + gimbal_yaw_deg,
             mount_pitch_deg=camera_params.mount_pitch_deg + gimbal_pitch_deg,
             mount_roll_deg=camera_params.mount_roll_deg,
+            principal_x_px=camera_params.principal_x_px,
+            principal_y_px=camera_params.principal_y_px,
         )
-        projection: dict[str, Any] = pixel_to_world(u, v, effective_params, pose).to_dict()
+        projected_point = pixel_to_world(
+            u,
+            v,
+            effective_params,
+            pose,
+            terrain=terrain_sampler,
+            origin_lat_deg=resolved_services.settings.geofence_center_lat,
+            origin_lon_deg=resolved_services.settings.geofence_center_lon,
+        )
+        projection: dict[str, Any] = projected_point.to_dict()
         projection["pixel"] = {"u": u, "v": v}
         projection["selection_anchor"] = str(params.get("selection_anchor") or "pixel")
+        projection["terrain_aware"] = terrain_sampler is not None
         projection["camera"] = {
             "base": camera_params.to_dict(),
             "effective": effective_params.to_dict(),
@@ -1262,7 +1353,27 @@ def create_server(
         projection["gimbal"] = {
             "tracked_pitch_deg": gimbal_pitch_deg,
             "tracked_yaw_deg": gimbal_yaw_deg,
+            "raw_pitch_deg": raw_gimbal_pitch_deg,
+            "raw_yaw_deg": observed_gimbal_yaw_deg,
+            "yaw_frame": resolved_services.settings.camera_gimbal_yaw_frame,
+            "pitch_sign": resolved_services.settings.camera_gimbal_pitch_sign,
+            "yaw_locked_forward": True,
         }
+        # Debug-level projection trace. Operator can `LOG_LEVEL=DEBUG` and
+        # tail the launcher log to verify which intermediate value drifts when
+        # calibrating mount offsets / gimbal frame.
+        import logging as _log
+        _log.getLogger(__name__).debug(
+            "project_pixel u=%.1f v=%.1f drone_yaw=%.2f observed_gimbal_yaw=%s "
+            "applied_gimbal_yaw=%.2f raw_gimbal_pitch=%.2f applied_pitch=%.2f "
+            "mount_yaw=%.2f → lat=%.6f lon=%.6f dist=%.1f terrain=%s",
+            u, v, pose.yaw_deg,
+            f"{observed_gimbal_yaw_deg:.2f}" if observed_gimbal_yaw_deg is not None else "none",
+            gimbal_yaw_deg,
+            raw_gimbal_pitch_deg, gimbal_pitch_deg, camera_params.mount_yaw_deg,
+            projected_point.latitude_deg, projected_point.longitude_deg,
+            projected_point.distance_m, projected_point.terrain_used,
+        )
         projection["pose"] = {
             "latitude_deg": pose.lat_deg,
             "longitude_deg": pose.lon_deg,

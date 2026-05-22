@@ -10,6 +10,8 @@ SIM_CLASSIC_ROOT="${SIM_CLASSIC_ROOT:-$REPO_ROOT/sim/gazebo-classic}"
 SIM_CLASSIC_MODEL_DIR="${SIM_CLASSIC_MODEL_DIR:-$SIM_CLASSIC_ROOT/models}"
 SIM_CLASSIC_WORLD_NAME="${SIM_CLASSIC_WORLD_NAME:-}"
 SIM_CLASSIC_WORLD_PATH="${SIM_CLASSIC_WORLD_PATH:-}"
+SIM_GZ_ROOT="${SIM_GZ_ROOT:-$REPO_ROOT/sim/gz}"
+SIM_GZ_WORLD_NAME="${SIM_GZ_WORLD_NAME:-}"
 
 source "$SCRIPT_DIR/sitl_profile.sh"
 
@@ -80,6 +82,21 @@ fi
 
 if [ "$SITL_RUNTIME" = "classic" ] && [ -f "$SIM_CLASSIC_WORLD_PATH" ] && [ -z "${PX4_SITL_WORLD:-}" ]; then
   export PX4_SITL_WORLD="$SIM_CLASSIC_WORLD_PATH"
+fi
+
+if [ "$SITL_RUNTIME" = "harmonic" ]; then
+  # Repo-local models override PX4's. gz searches GZ_SIM_RESOURCE_PATH in
+  # order, so prepending sim/gz/models means our lightweight `gimbal/` is
+  # found before PX4's `gimbal/` when x500_gimbal does `model://gimbal`.
+  if [ -d "$SIM_GZ_ROOT/models" ]; then
+    export GZ_SIM_RESOURCE_PATH="$SIM_GZ_ROOT/models${GZ_SIM_RESOURCE_PATH:+:$GZ_SIM_RESOURCE_PATH}"
+  fi
+  if [ -d "$SIM_GZ_ROOT/worlds" ]; then
+    export GZ_SIM_RESOURCE_PATH="$SIM_GZ_ROOT/worlds${GZ_SIM_RESOURCE_PATH:+:$GZ_SIM_RESOURCE_PATH}"
+  fi
+  if [ -n "$SIM_GZ_WORLD_NAME" ] && [ -z "${PX4_GZ_WORLD:-}" ]; then
+    export PX4_GZ_WORLD="$SIM_GZ_WORLD_NAME"
+  fi
 fi
 
 if [ "$SITL_RUNTIME" = "classic" ]; then

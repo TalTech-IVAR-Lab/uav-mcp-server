@@ -191,6 +191,33 @@ ensure_port_free() {
   fi
 }
 
+purge_stale_artifacts() {
+  if [ "${SKIP_CLEAN:-0}" = "1" ]; then
+    return
+  fi
+
+  local freed_kb=0
+  local size_kb
+
+  local px4_log_dir="$PX4_DIR/build/px4_sitl_default/rootfs/log"
+  if [ -d "$px4_log_dir" ]; then
+    size_kb="$(du -sk "$px4_log_dir" 2>/dev/null | awk '{print $1}')"
+    rm -rf "$px4_log_dir"/* 2>/dev/null || true
+    freed_kb=$((freed_kb + ${size_kb:-0}))
+  fi
+
+  if [ -d "$LOG_DIR" ]; then
+    size_kb="$(du -sk "$LOG_DIR" 2>/dev/null | awk '{print $1}')"
+    find "$LOG_DIR" -maxdepth 1 -type f -name '*.log' -delete 2>/dev/null || true
+    freed_kb=$((freed_kb + ${size_kb:-0}))
+  fi
+
+  if [ "$freed_kb" -gt 0 ]; then
+    printf 'Purged stale logs (%.1f MiB freed). Set SKIP_CLEAN=1 to skip.\n' \
+      "$(awk -v k="$freed_kb" 'BEGIN{printf "%.1f", k/1024}')"
+  fi
+}
+
 ensure_no_orphaned_simulator_processes() {
   if [ ! -d "$PX4_DIR" ]; then
     return
@@ -263,6 +290,7 @@ resolve_desktop_gui_env() {
 trap cleanup_on_failure EXIT
 
 "$SCRIPT_DIR/stop_live_stack.sh" || true
+purge_stale_artifacts
 ensure_port_free udp 14580 "PX4 SITL"
 ensure_port_free tcp "$PORT" "MCP server"
 ensure_no_orphaned_simulator_processes

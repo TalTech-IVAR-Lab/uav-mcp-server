@@ -252,7 +252,10 @@ DASHBOARD_HTML = """\
     border: 1px solid var(--panel-border);
     background: #020304;
   }
-  .camera-stream { width: 100%; height: 100%; object-fit: cover; }
+  /* object-fit: contain so the full sensor frame stays visible and the
+     pixel-mapping math (letterbox-aware) lines up with what the user sees.
+     'cover' would crop the image and silently offset every click. */
+  .camera-stream { width: 100%; height: 100%; object-fit: contain; display: block; background: #000; }
   .camera-overlay { position: absolute; inset: 0; cursor: crosshair; touch-action: none; }
   .crosshair {
     position: absolute; left: 50%; top: 50%; width: 24px; height: 24px;
@@ -309,7 +312,18 @@ DASHBOARD_HTML = """\
   /* ── Map ── */
   .map-shell { display: flex; flex-direction: column; height: 100%; gap: 6px; }
   .map-surface { flex: 1; min-height: 180px; border-radius: 8px; overflow: hidden; border: 1px solid var(--panel-border); }
-  #map { width: 100%; height: 100%; filter: contrast(1.1) brightness(0.8) sepia(0.25) hue-rotate(180deg) saturate(1.4); }
+  /* Map canvas tint AND its mirror on legend swatches.
+     The #map filter darkens / desaturates and hue-rotates the basemap so it
+     fits the dashboard's dark theme. Every colour drawn inside #map — tiles,
+     geofence, drone path, AND the HTML markers (which maplibre nests inside
+     #map) — passes through that filter. The legend swatches sit outside #map
+     so without applying the SAME filter to them they show the unfiltered
+     literal CSS colour, putting them 180° of hue away from the rendered map.
+     We apply the identical filter to .legend-swatch so legend and map render
+     through the same pipeline and match by construction. */
+  #map,
+  .legend-swatch { filter: contrast(1.1) brightness(0.8) sepia(0.25) hue-rotate(180deg) saturate(1.4); }
+  #map { width: 100%; height: 100%; }
   .map-footer { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
   .target-card { display: flex; flex-direction: column; gap: 4px; }
   .target-card .flex-row { margin-top: 2px; flex-wrap: wrap; }
@@ -1234,6 +1248,67 @@ DASHBOARD_HTML = """\
       appState.map.addLayer({ id: 'drone-path', type: 'line', source: 'drone-path',
         paint: { 'line-color': '#79a9ff', 'line-opacity': 0.75, 'line-width': 2 } });
 
+      // Camera-projection target rendered as a GeoJSON-backed circle layer
+      // (NOT an HTML marker). Circle layers project through the WebGL
+      // pipeline, so the marker stays pixel-perfect on the same lat/lon at
+      // every zoom level. The prior HTML maplibregl.Marker drifted relative
+      // to ground features when zooming because its CSS transform was
+      // anchored differently than the basemap tile scaling.
+      // The pink-ring + cross-hair style mirrors the .projection-icon CSS
+      // used by the HTML marker and the .swatch-projection legend swatch,
+      // so the legend/feed/map symbology all agree.
+      appState.map.addSource('projection-target', {
+        type: 'geojson',
+        data: { type: 'FeatureCollection', features: [] },
+      });
+      appState.map.addLayer({
+        id: 'projection-target-fill',
+        type: 'circle',
+        source: 'projection-target',
+        paint: {
+          'circle-radius': 9,
+          'circle-color': '#ec5f8f',
+          'circle-opacity': 0.18,
+        },
+      });
+      appState.map.addLayer({
+        id: 'projection-target-stroke',
+        type: 'circle',
+        source: 'projection-target',
+        paint: {
+          'circle-radius': 9,
+          'circle-color': 'rgba(0,0,0,0)',
+          'circle-stroke-width': 2,
+          'circle-stroke-color': '#ec5f8f',
+        },
+      });
+      appState.map.addLayer({
+        id: 'projection-target-center',
+        type: 'circle',
+        source: 'projection-target',
+        paint: { 'circle-radius': 2, 'circle-color': '#ec5f8f' },
+      });
+      // Clicking the projection ring shows the lat/lon popup. Anchored to
+      // the feature's geographic coordinate so the popup tracks the feature
+      // across zooms — not the screen pixel of the click.
+      appState.map.on('click', 'projection-target-stroke', function(event) {
+        var feature = event.features && event.features[0];
+        if (!feature) return;
+        var coords = feature.geometry.coordinates.slice();
+        new maplibregl.Popup({ closeButton: false })
+          .setLngLat(coords)
+          .setHTML(feature.properties.label
+            || 'Camera projection<br>'
+               + coords[1].toFixed(6) + ', ' + coords[0].toFixed(6))
+          .addTo(appState.map);
+      });
+      appState.map.on('mouseenter', 'projection-target-stroke', function() {
+        appState.map.getCanvas().style.cursor = 'pointer';
+      });
+      appState.map.on('mouseleave', 'projection-target-stroke', function() {
+        appState.map.getCanvas().style.cursor = '';
+      });
+
       if (!appState.map.getLayer('3d-buildings')) {
         appState.map.addLayer({
           id: '3d-buildings',
@@ -1254,6 +1329,15 @@ DASHBOARD_HTML = """\
     });
 
     appState.map.on('click', function(event) {
+      // Skip clicks landing on the projection target (circle layer) so
+      // re-clicking the pink ring shows its popup instead of resetting the
+      // map target at the same lat/lon. HTML maplibregl.Markers don't
+      // generate map click events (they're DOM overlay), but canvas-drawn
+      // circle layers do.
+      var hit = appState.map.queryRenderedFeatures(event.point, {
+        layers: ['projection-target-stroke', 'projection-target-fill', 'projection-target-center'],
+      });
+      if (hit && hit.length) return;
       setMapTarget({
         latitude_deg: event.lngLat.lat,
         longitude_deg: event.lngLat.lng,
@@ -1290,14 +1374,31 @@ DASHBOARD_HTML = """\
 
   function updateTargetMarker(projection) {
     if (!projection || !appState.mapReady) return;
-    var el = appState.targetMarker.getElement();
-    if (el) el.style.display = '';
-    appState.targetMarker.setLngLat([projection.longitude_deg, projection.latitude_deg]);
-    appState.targetMarker.setPopup(
-      new maplibregl.Popup({ closeButton: false }).setHTML(
-        'Camera projection<br>' + projection.latitude_deg.toFixed(6) + ', ' + projection.longitude_deg.toFixed(6)
-      )
-    );
+    // Drive the GeoJSON circle layer (pixel-perfect across zoom levels).
+    // The HTML marker is left in DOM but hidden — the circle layer renders
+    // the visible symbology now.
+    var src = appState.map.getSource('projection-target');
+    if (src) {
+      src.setData({
+        type: 'FeatureCollection',
+        features: [{
+          type: 'Feature',
+          properties: {
+            label: 'Camera projection<br>'
+              + projection.latitude_deg.toFixed(6)
+              + ', ' + projection.longitude_deg.toFixed(6),
+          },
+          geometry: {
+            type: 'Point',
+            coordinates: [projection.longitude_deg, projection.latitude_deg],
+          },
+        }],
+      });
+    }
+    if (appState.targetMarker) {
+      var el = appState.targetMarker.getElement();
+      if (el) el.style.display = 'none';
+    }
   }
 
   function updateMapTargetMarker(target) {
@@ -1437,14 +1538,31 @@ DASHBOARD_HTML = """\
     }
     var p = selection.projection;
     var gimbal = p.gimbal || {};
+    var pose = p.pose || {};
     var anchor = selection.anchorLabel || p.selection_anchor || 'pixel';
+    // Diagnostic line — surface the angles the projection actually used so
+    // a bearing offset can be tracked down without opening devtools.
+    //   drn      → vehicle heading from MAVSDK
+    //   gmb yaw  → applied gimbal yaw (0 in this codebase; we don't command yaw)
+    //   raw      → live MAVSDK gimbal yaw reading. Shown only when it
+    //              disagrees with the applied value, which is the signal of
+    //              a drifting yaw joint or a frame-convention mismatch.
+    var yawDiag = (
+      'drn ' + formatNumber(pose.yaw_deg, 1) + '°'
+      + ' / gmb yaw ' + formatNumber(gimbal.tracked_yaw_deg, 1) + '°'
+      + (gimbal.raw_yaw_deg != null
+          && Math.abs(gimbal.raw_yaw_deg - (gimbal.tracked_yaw_deg || 0)) > 0.1
+          ? ' (raw ' + gimbal.raw_yaw_deg.toFixed(1) + '°)'
+          : '')
+    );
     return [
       anchor,
       'px ' + selection.u.toFixed(0) + ',' + selection.v.toFixed(0),
       p.latitude_deg.toFixed(6),
       p.longitude_deg.toFixed(6),
       p.distance_m.toFixed(1) + 'm',
-      'gimbal ' + formatNumber(gimbal.tracked_pitch_deg, 1, '--') + 'deg'
+      'gmb pitch ' + formatNumber(gimbal.tracked_pitch_deg, 1) + '°',
+      yawDiag,
     ].join(' | ');
   }
 
@@ -1463,39 +1581,65 @@ DASHBOARD_HTML = """\
     $('selection-box').style.width = '0px';
     $('selection-box').style.height = '0px';
     if (appState.targetMarker) { var _tel = appState.targetMarker.getElement(); if (_tel) _tel.style.display = 'none'; }
+    if (appState.mapReady && appState.map) {
+      var src = appState.map.getSource('projection-target');
+      if (src) src.setData({ type: 'FeatureCollection', features: [] });
+    }
     updateSelectionUI();
   }
 
+  // Resolve the true sensor resolution. Order of preference:
+  //   1. The live <img>'s naturalWidth/Height (matches the JPEG bytes the
+  //      browser is rendering — robust to backend config drift).
+  //   2. /dashboard/api/config camera params (server's pinhole intrinsics).
+  //   3. A neutral 1:1 fallback so we don't divide by zero on cold start.
+  // Whatever we return MUST also be what the projection backend uses for
+  // intrinsics — otherwise the clicked pixel and pixel_to_world disagree.
+  function resolveSensorDims() {
+    var img = $('camera-stream');
+    if (img && img.naturalWidth > 0 && img.naturalHeight > 0) {
+      return { w: img.naturalWidth, h: img.naturalHeight, source: 'natural' };
+    }
+    var params = appState.config && appState.config.camera ? appState.config.camera.params : null;
+    if (params && params.width_px > 0 && params.height_px > 0) {
+      return { w: params.width_px, h: params.height_px, source: 'config' };
+    }
+    return { w: 1, h: 1, source: 'fallback' };
+  }
+
+  // Map a container-relative (x, y) click in CSS pixels to an image-pixel
+  // coordinate, accounting for object-fit: contain letterboxing.
+  // Returns null when the click lands on a letterbox bar (outside the image),
+  // so callers can reject the selection instead of silently clamping it.
   function mapContainerToImagePixel(x, y, rectWidth, rectHeight, imgWidth, imgHeight) {
-    if (!rectWidth || !rectHeight || !imgWidth || !imgHeight) {
-      return { u: imgWidth / 2, v: imgHeight / 2 };
+    if (!rectWidth || !rectHeight || !imgWidth || !imgHeight) return null;
+
+    // contain: take the smaller of the two scale factors so the whole image fits.
+    var scale = Math.min(rectWidth / imgWidth, rectHeight / imgHeight);
+    var renderWidth = imgWidth * scale;
+    var renderHeight = imgHeight * scale;
+    var offsetX = (rectWidth - renderWidth) / 2;
+    var offsetY = (rectHeight - renderHeight) / 2;
+
+    var localX = x - offsetX;
+    var localY = y - offsetY;
+
+    // EPS lets a click exactly on the image border still count (sub-pixel slop
+    // from CSS rounding). Outside that, treat it as a letterbox-bar miss.
+    var EPS = 0.5;
+    if (localX < -EPS || localY < -EPS || localX > renderWidth + EPS || localY > renderHeight + EPS) {
+      return null;
     }
-    var imgRatio = imgWidth / imgHeight;
-    var rectRatio = rectWidth / rectHeight;
-    
-    var renderWidth = rectWidth;
-    var renderHeight = rectHeight;
-    var offsetX = 0;
-    var offsetY = 0;
-    
-    if (rectRatio > imgRatio) {
-      renderWidth = rectWidth;
-      renderHeight = rectWidth / imgRatio;
-      offsetY = (rectHeight - renderHeight) / 2;
-    } else {
-      renderHeight = rectHeight;
-      renderWidth = rectHeight * imgRatio;
-      offsetX = (rectWidth - renderWidth) / 2;
-    }
-    
-    var imgX = x - offsetX;
-    var imgY = y - offsetY;
-    var u = (imgX / renderWidth) * imgWidth;
-    var v = (imgY / renderHeight) * imgHeight;
-    
+
+    var u = (localX / renderWidth) * imgWidth;
+    var v = (localY / renderHeight) * imgHeight;
     return {
-      u: Math.max(0, Math.min(imgWidth, u)),
-      v: Math.max(0, Math.min(imgHeight, v))
+      u: Math.max(0, Math.min(imgWidth - 1, u)),
+      v: Math.max(0, Math.min(imgHeight - 1, v)),
+      renderWidth: renderWidth,
+      renderHeight: renderHeight,
+      offsetX: offsetX,
+      offsetY: offsetY,
     };
   }
 
@@ -1504,24 +1648,22 @@ DASHBOARD_HTML = """\
     var rect = overlay.getBoundingClientRect();
     var x = Math.max(0, Math.min(rect.width, event.clientX - rect.left));
     var y = Math.max(0, Math.min(rect.height, event.clientY - rect.top));
-    var params = appState.config && appState.config.camera ? appState.config.camera.params : null;
-    var widthPx = params ? params.width_px : 1920;
-    var heightPx = params ? params.height_px : 1080;
-    
-    var pixel = mapContainerToImagePixel(x, y, rect.width, rect.height, widthPx, heightPx);
-    
+    var dims = resolveSensorDims();
+    var pixel = mapContainerToImagePixel(x, y, rect.width, rect.height, dims.w, dims.h);
     return {
       x: x, y: y,
       rectWidth: rect.width, rectHeight: rect.height,
-      u: pixel.u,
-      v: pixel.v,
+      u: pixel ? pixel.u : null,
+      v: pixel ? pixel.v : null,
+      inside: pixel !== null,
     };
   }
 
-  function cameraPixelFromOverlay(x, y, rectWidth, rectHeight, params) {
-    var widthPx = params ? params.width_px : 1920;
-    var heightPx = params ? params.height_px : 1080;
-    return mapContainerToImagePixel(x, y, rectWidth, rectHeight, widthPx, heightPx);
+  function cameraPixelFromOverlay(x, y, rectWidth, rectHeight, _params) {
+    // _params kept for call-site compatibility but resolveSensorDims is the
+    // authoritative source: prefers img.naturalWidth/Height over config.
+    var dims = resolveSensorDims();
+    return mapContainerToImagePixel(x, y, rectWidth, rectHeight, dims.w, dims.h);
   }
 
   function setSelectionBox(left, top, width, height) {
@@ -1606,6 +1748,12 @@ DASHBOARD_HTML = """\
       var anchorX = isBoxSelection ? rawLeft + rawWidth / 2 : current.x;
       var anchorY = isBoxSelection ? rawTop + rawHeight : current.y;
       var pixel = cameraPixelFromOverlay(anchorX, anchorY, current.rectWidth, current.rectHeight, params);
+      if (!pixel) {
+        // Click landed on a letterbox bar — outside the actual video frame.
+        notify('Click inside the video frame to select a target.', 'err');
+        clearSelection();
+        return;
+      }
       await projectSelection(Object.assign(pixel, {
         selection_anchor: isBoxSelection ? 'ground_footpoint' : 'clicked_pixel',
         anchorLabel: isBoxSelection ? 'footpoint' : 'click',

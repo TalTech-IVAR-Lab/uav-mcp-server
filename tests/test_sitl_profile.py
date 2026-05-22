@@ -107,8 +107,8 @@ def test_resolve_px4_model_rejects_unsupported_explicit_model(tmp_path: Path) ->
 
     assert result.returncode != 0
     assert (
-        "Supported PX4_MODEL values: gz_x500 gazebo-classic gazebo-classic_typhoon_h480 "
-        "gazebo-classic_iris_fpv_cam"
+        "Supported PX4_MODEL values: gz_x500 gz_x500_mono_cam gz_x500_gimbal "
+        "gazebo-classic gazebo-classic_typhoon_h480 gazebo-classic_iris_fpv_cam"
     ) in result.stderr
 
 
