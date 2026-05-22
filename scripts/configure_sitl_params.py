@@ -167,7 +167,53 @@ SMOOTH_FLIGHT_PARAMS: dict[str, float] = {
     "MPC_TKO_SPEED":      1.5,   # takeoff climb speed [m/s]
     "MPC_TKO_RAMP_T":     2.0,   # takeoff ramp time [s]
     "MPC_LAND_SPEED":     0.7,   # touchdown speed [m/s]
+
+    # ---- Attitude rate loops (the inner controller — rebound knob #4) ----
+    # The outer MPC sends an attitude setpoint to satisfy the velocity
+    # setpoint. Even with the trajectory smoothed, if the rate loop is
+    # under-damped the airframe bobs around the commanded attitude before
+    # settling. PX4 x500 defaults are tuned for a real airframe with sensor
+    # noise; SITL has clean feedback, so we can run softer P + more D
+    # without losing tracking precision.
+    #
+    # ROLL / PITCH (affect WASD feel):
+    #   K  1.00 → 0.90   slightly lower overall rate-loop gain
+    #   P  0.15 → 0.13   gentler corrective torque
+    #   D  0.003 → 0.005 ~1.7× damping on the rate error derivative
+    "MC_ROLLRATE_K":      0.90,
+    "MC_ROLLRATE_P":      0.13,
+    "MC_ROLLRATE_D":      0.005,
+    "MC_PITCHRATE_K":     0.90,
+    "MC_PITCHRATE_P":     0.13,
+    "MC_PITCHRATE_D":     0.005,
+    # Outer attitude loop on roll/pitch (default 6.5) — softer pulls the
+    # airframe toward setpoint without snapping past it.
+    "MC_ROLL_P":          5.5,
+    "MC_PITCH_P":         5.5,
+
+    # YAW (the main complaint — most aggressive damping here):
+    #   MC_YAW_P     2.8 → 1.8   outer yaw-heading loop is the main source
+    #                            of yaw overshoot. Halving the gain takes
+    #                            longer to settle but eliminates the bounce.
+    #   MC_YAWRATE_K 1.0 → 0.85  scale the whole rate loop down 15 %.
+    #   MC_YAWRATE_D 0.0 → 0.04  PX4 defaults this to 0. Adding derivative
+    #                            damping is the single biggest yaw-bounce
+    #                            killer in SITL.
+    "MC_YAW_P":           1.8,
+    "MC_YAWRATE_K":       0.85,
+    "MC_YAWRATE_P":       0.18,
+    "MC_YAWRATE_D":       0.04,
+    # Lower the headline yaw rates too — less inertia to brake at end of
+    # the commanded turn.
+    # (MPC_YAWRAUTO_MAX / MPC_MAN_Y_MAX already overridden above; tighten
+    # here to keep the actual experienced rate consistent with the lower
+    # gains so we don't saturate the rate loop.)
 }
+# Re-write the two MPC yaw caps to the more conservative values (overrides
+# whatever was set earlier in the dict construction without leaving a
+# duplicate key in the literal that linters could complain about).
+SMOOTH_FLIGHT_PARAMS["MPC_YAWRAUTO_MAX"] = 30.0
+SMOOTH_FLIGHT_PARAMS["MPC_MAN_Y_MAX"]   = 60.0
 
 
 async def run(args: argparse.Namespace) -> None:
