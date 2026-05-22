@@ -360,6 +360,18 @@ DASHBOARD_HTML = """\
   .swatch-projection::before { width: 8px; height: 1px; }
   .swatch-projection::after { width: 1px; height: 8px; }
   .swatch-fence  { border-radius: 2px; background: rgba(0,229,255,0.12); border: 1px solid var(--accent); }
+  /* Heading line swatch: matches the dashed map layer (#00e5ff,
+     dasharray [3,3]). Goes through the same hue-rotate filter as the
+     canvas via .legend-swatch above, so the rendered colour matches. */
+  .swatch-heading-line {
+    border: none;
+    background: transparent;
+    background-image: linear-gradient(to right, #00e5ff 50%, transparent 50%);
+    background-size: 6px 2px;
+    background-repeat: repeat-x;
+    background-position: 0 center;
+    height: 12px;
+  }
   .maplibregl-map { background: transparent !important; }
   .drone-icon {
     --yaw-deg: 0deg;
@@ -690,6 +702,7 @@ DASHBOARD_HTML = """\
             <div class="card-title" style="margin-bottom:4px;">Symbology</div>
             <div class="legend">
               <div class="legend-row"><span class="legend-swatch swatch-drone"></span>Drone + heading</div>
+              <div class="legend-row"><span class="legend-swatch swatch-heading-line"></span>Heading line</div>
               <div class="legend-row"><span class="legend-swatch swatch-home"></span>Home reference</div>
               <div class="legend-row"><span class="legend-swatch swatch-target"></span>Map target</div>
               <div class="legend-row"><span class="legend-swatch swatch-projection"></span>Camera projection</div>
@@ -1248,6 +1261,28 @@ DASHBOARD_HTML = """\
       appState.map.addLayer({ id: 'drone-path', type: 'line', source: 'drone-path',
         paint: { 'line-color': '#79a9ff', 'line-opacity': 0.75, 'line-width': 2 } });
 
+      // Dashed heading ray: extends from the drone position 5 km along its
+      // yaw direction. Visual ground-truth check that the yaw the autopilot
+      // reports matches what the camera actually sees in the sim — when the
+      // camera centre projects onto this line, the projection chain is
+      // intact. Re-source-set every telemetry tick in updateMapWithTelemetry
+      // via updateDroneHeadingLine().
+      appState.map.addSource('drone-heading', {
+        type: 'geojson',
+        data: { type: 'Feature', geometry: { type: 'LineString', coordinates: [] } },
+      });
+      appState.map.addLayer({
+        id: 'drone-heading',
+        type: 'line',
+        source: 'drone-heading',
+        paint: {
+          'line-color': '#00e5ff',
+          'line-opacity': 0.7,
+          'line-width': 1.5,
+          'line-dasharray': [3, 3],
+        },
+      });
+
       // Camera-projection target rendered as a GeoJSON-backed circle layer
       // (NOT an HTML marker). Circle layers project through the WebGL
       // pipeline, so the marker stays pixel-perfect on the same lat/lon at
@@ -1359,6 +1394,7 @@ DASHBOARD_HTML = """\
     var lngLat = [snapshot.longitude_deg, snapshot.latitude_deg];
     appState.droneMarker.setLngLat(lngLat);
     rotateDroneMarker(snapshot.yaw_deg || 0);
+    updateDroneHeadingLine(lngLat, snapshot.yaw_deg);
     var history = appState.history;
     var last = history.length ? history[history.length - 1] : null;
     if (!last || last[0] !== lngLat[0] || last[1] !== lngLat[1]) {
@@ -1370,6 +1406,33 @@ DASHBOARD_HTML = """\
     if ($('auto-center').checked) {
       appState.map.panTo(lngLat, { animate: true });
     }
+  }
+
+  // Heading endpoint: 5 km ahead of the drone along its current yaw. 5 km is
+  // far past any reasonable zoom level, so the dashes appear to extend to
+  // infinity. Flat-earth approx (good to <0.5 m over 5 km at this latitude).
+  function updateDroneHeadingLine(lngLat, yawDeg) {
+    var src = appState.map && appState.map.getSource && appState.map.getSource('drone-heading');
+    if (!src) return;
+    if (yawDeg == null || lngLat == null || lngLat[0] == null) {
+      src.setData({ type: 'Feature', geometry: { type: 'LineString', coordinates: [] } });
+      return;
+    }
+    var LENGTH_M = 5000;
+    var METERS_PER_DEG_LAT = 111320;
+    var yawRad = (yawDeg || 0) * Math.PI / 180;
+    var north = Math.cos(yawRad) * LENGTH_M;
+    var east  = Math.sin(yawRad) * LENGTH_M;
+    var lat = lngLat[1];
+    var dLat = north / METERS_PER_DEG_LAT;
+    var dLon = east / (METERS_PER_DEG_LAT * Math.cos(lat * Math.PI / 180));
+    src.setData({
+      type: 'Feature',
+      geometry: {
+        type: 'LineString',
+        coordinates: [lngLat, [lngLat[0] + dLon, lat + dLat]],
+      },
+    });
   }
 
   function updateTargetMarker(projection) {
