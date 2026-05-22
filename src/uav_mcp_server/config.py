@@ -122,6 +122,13 @@ class Settings(BaseSettings):
     assistant_bypass_available: bool = Field(default=True)
     assistant_vision_enabled: bool = Field(default=True)
     assistant_mcp_url: str | None = Field(default=None)
+    # Retry budget for transient Gemini failures (503 UNAVAILABLE, 429
+    # RESOURCE_EXHAUSTED, 5xx, timeouts). The plan path falls back to the
+    # local deterministic planner if these attempts are all exhausted.
+    # Backoff: base * 2**attempt + jitter, capped at max.
+    assistant_max_retries: int = Field(default=4, ge=1, le=10)
+    assistant_retry_base_delay_s: float = Field(default=1.0, gt=0.0)
+    assistant_retry_max_delay_s: float = Field(default=8.0, gt=0.0)
     gemini_api_key: str | None = Field(default=None)
     manual_control_translation_step_m: float = Field(default=10.0, gt=0)
     manual_control_altitude_step_m: float = Field(default=1.5, gt=0)

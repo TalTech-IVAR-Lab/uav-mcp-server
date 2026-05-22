@@ -184,8 +184,11 @@ async def test_dashboard_assistant_normalizes_orbit_yaw_aliases(monkeypatch) -> 
 async def test_dashboard_assistant_falls_back_when_gemini_errors(monkeypatch) -> None:
     assistant = DashboardAssistant(Settings(_env_file=None, gemini_api_key="test-key"))
 
+    # Use a non-retryable error shape (schema / parsing class) so the
+    # fallback_reason is the raw message, not a retry-wrapped one. The
+    # retry-wrapping behaviour has its own test below.
     def fake_plan_with_gemini(*args, **kwargs):
-        raise RuntimeError("Gemini unavailable")
+        raise RuntimeError("schema validation failed")
 
     monkeypatch.setattr(assistant, "_plan_with_gemini", fake_plan_with_gemini)
 
@@ -201,5 +204,33 @@ async def test_dashboard_assistant_falls_back_when_gemini_errors(monkeypatch) ->
     )
 
     assert result.source == "fallback"
-    assert result.fallback_reason == "Gemini unavailable"
+    assert result.fallback_reason == "schema validation failed"
     assert [call.name for call in result.proposed_calls] == ["orbit"]
+
+
+@pytest.mark.asyncio
+async def test_dashboard_assistant_wraps_retryable_gemini_failures(monkeypatch) -> None:
+    """A 503-style failure surfaces a clearer "after N retries" message in
+    the dashboard chat instead of just dumping the raw exception."""
+    settings = Settings(_env_file=None, gemini_api_key="test-key", assistant_max_retries=3)
+    assistant = DashboardAssistant(settings)
+
+    def fake_plan_with_gemini(*args, **kwargs):
+        raise RuntimeError("503 UNAVAILABLE: model overloaded")
+
+    monkeypatch.setattr(assistant, "_plan_with_gemini", fake_plan_with_gemini)
+
+    result = await assistant.plan(
+        "orbit the selected target",
+        telemetry=_snapshot(),
+        selected_target=AssistantTarget(
+            latitude_deg=46.2332,
+            longitude_deg=6.0557,
+            source="map",
+        ),
+        grounding=_grounding(),
+    )
+
+    assert result.source == "fallback"
+    assert "Gemini overloaded after 3 retries" in (result.fallback_reason or "")
+    assert "503 UNAVAILABLE" in (result.fallback_reason or "")

@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
+import random
 import re
+import time
 from collections.abc import Sequence
 from typing import Any
 
@@ -13,6 +16,77 @@ from pydantic import BaseModel, Field
 from uav_mcp_server.config import Settings
 from uav_mcp_server.navigation import coordinate_offset_m
 from uav_mcp_server.types import OrbitYawBehavior, TelemetrySnapshot
+
+_LOG = logging.getLogger(__name__)
+
+# Gemini transient-failure markers. Match string-side rather than against a
+# concrete exception class because the google-genai SDK packages errors
+# under several different class names across versions, but the substring
+# "503" / "UNAVAILABLE" / "429" / "RESOURCE_EXHAUSTED" / "deadline" stays
+# stable in the exception payload.
+_GEMINI_RETRYABLE_MARKERS = (
+    "503",
+    "unavailable",
+    "429",
+    "resource_exhausted",
+    "rate limit",
+    "deadline",
+    "timeout",
+    "internal error",
+    "500 internal",
+    "502 bad gateway",
+    "504 gateway timeout",
+)
+
+
+def _is_retryable_gemini_error(exc: BaseException) -> bool:
+    message = str(exc).lower()
+    return any(marker in message for marker in _GEMINI_RETRYABLE_MARKERS)
+
+
+def _generate_with_retry(
+    client: Any,
+    *,
+    model: str,
+    contents: Any,
+    config: Any,
+    max_attempts: int = 4,
+    base_delay_s: float = 1.0,
+    max_delay_s: float = 8.0,
+) -> Any:
+    """Call ``client.models.generate_content`` with exponential backoff.
+
+    Retries on transient Gemini errors (503, 429, 5xx, timeouts) up to
+    ``max_attempts`` times with delays ``base * 2**attempt + jitter``,
+    capped at ``max_delay_s``. Non-transient errors (400, 401, 403, 404,
+    invalid argument, schema errors) propagate immediately so callers can
+    fall back to the local planner without wasting time retrying.
+    """
+    last_exc: BaseException | None = None
+    for attempt in range(max_attempts):
+        try:
+            return client.models.generate_content(
+                model=model, contents=contents, config=config,
+            )
+        except Exception as exc:  # noqa: BLE001 — google-genai exception hierarchy varies
+            last_exc = exc
+            if not _is_retryable_gemini_error(exc):
+                raise
+            if attempt == max_attempts - 1:
+                _LOG.warning(
+                    "Gemini retry budget exhausted after %d attempts: %s",
+                    max_attempts, exc,
+                )
+                raise
+            delay = min(base_delay_s * (2 ** attempt), max_delay_s) + random.uniform(0.0, 0.4)
+            _LOG.info(
+                "Gemini transient error (attempt %d/%d), retrying in %.1fs: %s",
+                attempt + 1, max_attempts, delay, exc,
+            )
+            time.sleep(delay)
+    # Unreachable, but mypy / static analysis appreciate it.
+    assert last_exc is not None
+    raise last_exc
 
 READ_ONLY_COMMANDS = frozenset({"get_status", "get_telemetry"})
 ASSISTANT_ALLOWED_COMMANDS = frozenset(
@@ -377,7 +451,20 @@ class DashboardAssistant:
                     proposed_calls=calls,
                 )
             except Exception as exc:
-                fallback_reason = str(exc)
+                # Surface a tidy reason for the dashboard chat trail. The
+                # retry helper already burned the retry budget on transient
+                # errors; if we reach here on a transient marker it means
+                # all attempts failed, so the message reflects "after
+                # retries" instead of just dumping the raw payload.
+                if _is_retryable_gemini_error(exc):
+                    fallback_reason = (
+                        f"Gemini overloaded after "
+                        f"{self._settings.assistant_max_retries} retries — "
+                        f"used local fallback planner. ({exc})"
+                    )
+                else:
+                    fallback_reason = str(exc)
+                _LOG.warning("Assistant plan via Gemini failed: %s", exc)
 
         fallback = fallback_plan(
             operator_text,
@@ -464,7 +551,8 @@ class DashboardAssistant:
             },
         }
         image_part = _gemini_image_part(types, image_jpeg, "image/jpeg")
-        response = client.models.generate_content(
+        response = _generate_with_retry(
+            client,
             model=self._settings.assistant_model,
             contents=[json.dumps(prompt_payload, ensure_ascii=True), image_part],
             config=types.GenerateContentConfig(
@@ -475,6 +563,9 @@ class DashboardAssistant:
                 temperature=0.0,
                 response_mime_type="application/json",
             ),
+            max_attempts=self._settings.assistant_max_retries,
+            base_delay_s=self._settings.assistant_retry_base_delay_s,
+            max_delay_s=self._settings.assistant_retry_max_delay_s,
         )
         text = getattr(response, "text", None)
         if not text:
@@ -523,7 +614,8 @@ class DashboardAssistant:
                 ],
             },
         }
-        response = client.models.generate_content(
+        response = _generate_with_retry(
+            client,
             model=self._settings.assistant_model,
             contents=json.dumps(prompt_payload, ensure_ascii=True),
             config=genai.types.GenerateContentConfig(
@@ -531,6 +623,9 @@ class DashboardAssistant:
                 temperature=self._settings.assistant_temperature,
                 response_mime_type="application/json",
             ),
+            max_attempts=self._settings.assistant_max_retries,
+            base_delay_s=self._settings.assistant_retry_base_delay_s,
+            max_delay_s=self._settings.assistant_retry_max_delay_s,
         )
         text = getattr(response, "text", None)
         if not text:
