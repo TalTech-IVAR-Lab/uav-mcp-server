@@ -152,9 +152,21 @@ class _GeminiVisionTarget(BaseModel):
     found: bool = False
     label: str | None = None
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    # Pixel-space coordinates the model claims are in the original image's
+    # coordinate system. Gemini Vision is known to return these in its
+    # internal resized preprocess space when the model "forgets" the input
+    # resolution, so we also accept normalised [0, 1] coords and prefer
+    # those when they're populated — those are dimension-agnostic by
+    # construction.
     u: float | None = None
     v: float | None = None
+    # Normalised [0.0, 1.0] coordinates — independent of image dimensions.
+    # When Gemini provides these we use them in preference to u/v so any
+    # internal-resolution drift is naturally cancelled out.
+    u_norm: float | None = None
+    v_norm: float | None = None
     bbox_xyxy: list[float] | None = None
+    bbox_norm: list[float] | None = None
     selection_anchor: str | None = None
     rationale: str = ""
 
@@ -526,26 +538,62 @@ class DashboardAssistant:
         from google import genai
         from google.genai import types
 
+        # Verify the JPEG bytes actually have the dimensions the caller
+        # claims. If they differ (a downsampled / resized frame slipping
+        # through the pipeline), use the JPEG-encoded dimensions for the
+        # prompt and capture the scale factor — we'll un-scale Gemini's
+        # pixel coords back to the projection layer's coordinate system
+        # before returning.
+        actual_w, actual_h = _decode_jpeg_dimensions(image_jpeg)
+        if actual_w is not None and actual_h is not None and (
+            actual_w != image_width_px or actual_h != image_height_px
+        ):
+            _LOG.warning(
+                "Camera frame dimensions (%dx%d) disagree with camera_params "
+                "(%dx%d). Telling Gemini the actual frame dimensions and "
+                "rescaling its pixel coords back to camera_params space.",
+                actual_w, actual_h, image_width_px, image_height_px,
+            )
+            prompt_w, prompt_h = actual_w, actual_h
+        else:
+            prompt_w, prompt_h = image_width_px, image_height_px
+
         client = genai.Client(api_key=self._settings.gemini_api_key or os.getenv("GEMINI_API_KEY"))
         prompt_payload = {
             "task": "Locate the single visual target in the current drone camera frame.",
             "operator_request": operator_text,
-            "image_width_px": image_width_px,
-            "image_height_px": image_height_px,
+            "image_width_px": prompt_w,
+            "image_height_px": prompt_h,
             "instructions": [
                 "Return only JSON.",
-                "Use pixel coordinates in the original image coordinate system.",
-                "If the target is a ground object or building, return the bottom-center footpoint of the visible target, not its visual centroid.",
-                "If the operator refers to an object behind or near another object, choose the most likely visible target satisfying that spatial relation.",
-                "If the target is not visible or ambiguous, set found=false and do not guess.",
+                f"The image is exactly {prompt_w} pixels wide and {prompt_h} pixels tall.",
+                "Provide both pixel coordinates (u, v) AND normalised coordinates "
+                "(u_norm, v_norm) in the [0.0, 1.0] range. u_norm = u / width, "
+                "v_norm = v / height. The normalised values are what downstream "
+                "consumers rely on, so they must be precise.",
+                "Origin is the TOP-LEFT corner of the image. u (or u_norm) "
+                "increases to the right, v (or v_norm) increases downward.",
+                "If the target is a ground object or building, return the "
+                "bottom-center footpoint of the visible target — where the "
+                "object touches the ground — NOT the visual centroid. This "
+                "matters because downstream projection uses this point to "
+                "intersect the ground plane.",
+                "If the operator refers to an object behind or near another "
+                "object, choose the most likely visible target satisfying that "
+                "spatial relation.",
+                "If the target is not visible or ambiguous, set found=false "
+                "and do not guess.",
             ],
             "required_json_shape": {
                 "found": "boolean",
                 "label": "short target label or null",
                 "confidence": "0.0 to 1.0",
-                "u": "target pixel x coordinate, null if not found",
-                "v": "target pixel y coordinate, null if not found",
+                "u": "target pixel x coordinate (0..width-1), null if not found",
+                "v": "target pixel y coordinate (0..height-1), null if not found",
+                "u_norm": "u / width, 0.0..1.0, null if not found",
+                "v_norm": "v / height, 0.0..1.0, null if not found",
                 "bbox_xyxy": "[left, top, right, bottom] in pixels, null if unavailable",
+                "bbox_norm": "[left, top, right, bottom] normalised 0..1, null if unavailable",
                 "selection_anchor": "ground_footpoint, object_center, or clicked_pixel",
                 "rationale": "one short sentence",
             },
@@ -662,15 +710,47 @@ def _camera_target_from_gemini(
             rationale=raw.rationale,
         )
 
-    u = raw.u
-    v = raw.v
     anchor = raw.selection_anchor or "ground_footpoint"
-    if raw.bbox_xyxy is not None and len(raw.bbox_xyxy) == 4:
-        left, top, right, bottom = raw.bbox_xyxy
+    fw = float(image_width_px)
+    fh = float(image_height_px)
+
+    # Coordinate precedence (most → least trusted):
+    #   1. normalised u_norm/v_norm   → rescale to (fw, fh). Dimension-
+    #      independent, immune to Gemini's internal preprocess drift.
+    #   2. raw pixel u/v              → trust only if it falls inside the
+    #      image bounds.
+    #   3. bounding-box centre        → fallback when explicit point is
+    #      missing.
+    u: float | None = None
+    v: float | None = None
+    coord_source = "none"
+
+    if raw.u_norm is not None and raw.v_norm is not None:
+        u = float(raw.u_norm) * fw
+        v = float(raw.v_norm) * fh
+        coord_source = "u_norm"
+    elif raw.u is not None and raw.v is not None:
+        u = float(raw.u)
+        v = float(raw.v)
+        coord_source = "u_px"
+
+    # Bounding-box anchored fallback / refinement.
+    bbox_px = raw.bbox_xyxy
+    if (
+        bbox_px is None
+        and raw.bbox_norm is not None
+        and len(raw.bbox_norm) == 4
+    ):
+        nl, nt, nr, nb = raw.bbox_norm
+        bbox_px = [nl * fw, nt * fh, nr * fw, nb * fh]
+
+    if (u is None or v is None) and bbox_px is not None and len(bbox_px) == 4:
+        left, top, right, bottom = bbox_px
         if u is None:
             u = (left + right) / 2.0
         if v is None:
             v = bottom if anchor == "ground_footpoint" else (top + bottom) / 2.0
+        coord_source = "bbox"
 
     if u is None or v is None:
         return AssistantCameraTarget(
@@ -680,18 +760,41 @@ def _camera_target_from_gemini(
             rationale="Vision model did not return usable pixel coordinates.",
         )
 
-    clamped_u = max(0.0, min(float(image_width_px), float(u)))
-    clamped_v = max(0.0, min(float(image_height_px), float(v)))
+    clamped_u = max(0.0, min(fw, u))
+    clamped_v = max(0.0, min(fh, v))
+    _LOG.info(
+        "Gemini vision target: source=%s u=%.1f v=%.1f → clamped=(%.1f, %.1f) "
+        "in %dx%d (raw_u=%s raw_v=%s u_norm=%s v_norm=%s anchor=%s label=%s)",
+        coord_source, u, v, clamped_u, clamped_v, image_width_px, image_height_px,
+        raw.u, raw.v, raw.u_norm, raw.v_norm, anchor, raw.label,
+    )
     return AssistantCameraTarget(
         found=True,
         label=raw.label,
         confidence=raw.confidence,
         u=clamped_u,
         v=clamped_v,
-        bbox_xyxy=raw.bbox_xyxy,
+        bbox_xyxy=bbox_px,
         selection_anchor=anchor,
         rationale=raw.rationale,
     )
+
+
+def _decode_jpeg_dimensions(image_jpeg: bytes) -> tuple[int | None, int | None]:
+    """Return (width, height) of a JPEG byte string, or (None, None) on
+    failure. Uses Pillow when available; gracefully degrades to None when
+    the dependency isn't present so the existing best-effort flow keeps
+    working."""
+    try:
+        from io import BytesIO
+        from PIL import Image
+    except Exception:  # noqa: BLE001
+        return None, None
+    try:
+        with Image.open(BytesIO(image_jpeg)) as img:
+            return int(img.width), int(img.height)
+    except Exception:  # noqa: BLE001
+        return None, None
 
 
 def _resource_payload(resource: Any) -> Any:

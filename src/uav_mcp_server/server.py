@@ -1689,6 +1689,24 @@ def create_server(
         except (ValueError, RuntimeError) as exc:
             return selected_target, {"vision": vision_dict}, str(exc)
 
+        # End-to-end diagnostic so a regression in either Gemini accuracy
+        # or the projection pipeline can be told apart from the log.
+        import logging as _log
+        _bearing_from_drone = degrees(
+            atan2(float(projection["east_m"]), float(projection["north_m"]))
+        )
+        _log.getLogger(__name__).info(
+            "assistant_vision: %r → pixel=(%.1f, %.1f) anchor=%s → "
+            "lat=%.6f lon=%.6f dist=%.1fm bearing≈%.1f° from drone",
+            (visual_target.label or "?"),
+            visual_target.u, visual_target.v,
+            visual_target.selection_anchor,
+            float(projection["latitude_deg"]),
+            float(projection["longitude_deg"]),
+            float(projection["distance_m"]),
+            _bearing_from_drone,
+        )
+
         resolved_target = AssistantTarget(
             source="camera_vision",
             latitude_deg=float(projection["latitude_deg"]),
