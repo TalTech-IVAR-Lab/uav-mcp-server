@@ -122,40 +122,48 @@ async def _set_float_if_needed(drone: Any, name: str, value: float) -> float:
 #
 # Safety-relevant params (battery, geofence, COM_*) are untouched.
 SMOOTH_FLIGHT_PARAMS: dict[str, float] = {
-    # ---- Translation top-end (kept fast) ----
+    # ---- Translation top-end (fast cruise) ----
     "MPC_XY_VEL_MAX":     5.0,   # cruise speed cap [m/s]
     "MPC_XY_CRUISE":      4.0,   # auto-mode cruise [m/s]
     "MPC_VEL_MANUAL":     5.0,   # manual position-mode cap [m/s]
 
-    # ---- Ramp limits (the actual "no rebound" knobs) ----
-    # Accel/jerk caps stay modest so the trajectory generator never feeds
-    # the velocity loop a step it can't follow. The drone takes ~2 s to
-    # spool up to cruise speed and ~2 s to settle on stop — long enough to
-    # avoid overshoot, short enough to not feel sluggish.
-    "MPC_ACC_HOR_MAX":    2.5,   # max horizontal accel [m/s²]
-    "MPC_ACC_HOR":        2.0,   # nominal horizontal accel [m/s²]
-    "MPC_JERK_AUTO":      5.0,   # auto-mode jerk limit [m/s³]
-    "MPC_JERK_MAX":       5.0,   # max jerk [m/s³]
+    # ---- Ramp limits (rebound knob #1: how aggressively the trajectory
+    #     generator ramps the velocity setpoint). Dialed lower so the
+    #     velocity loop never has to chase a step. Sub-second cruise
+    #     spool-up still feels responsive but no kinetic overshoot. ----
+    "MPC_ACC_HOR_MAX":    1.5,   # max horizontal accel [m/s²]
+    "MPC_ACC_HOR":        1.2,   # nominal horizontal accel [m/s²]
+    "MPC_JERK_AUTO":      3.0,   # auto-mode jerk limit [m/s³]
+    "MPC_JERK_MAX":       3.0,   # max jerk [m/s³]
 
-    # ---- Vertical envelope ----
-    "MPC_Z_VEL_MAX_UP":   3.0,   # climb rate [m/s]
-    "MPC_Z_VEL_MAX_DN":   2.0,   # descent rate [m/s]
-    "MPC_ACC_UP_MAX":     2.5,   # vertical accel up [m/s²]
-    "MPC_ACC_DOWN_MAX":   2.5,   # vertical accel down [m/s²]
+    # ---- Vertical envelope (fast climb / descent) ----
+    "MPC_Z_VEL_MAX_UP":   5.0,   # climb rate [m/s]
+    "MPC_Z_VEL_MAX_DN":   4.0,   # descent rate [m/s]
+    "MPC_ACC_UP_MAX":     4.0,   # vertical accel up [m/s²]
+    "MPC_ACC_DOWN_MAX":   4.0,   # vertical accel down [m/s²]
 
     # ---- Yaw ----
     "MPC_YAWRAUTO_MAX":  45.0,   # auto yaw rate [deg/s]
     "MPC_MAN_Y_MAX":     90.0,   # manual yaw rate [deg/s]
 
-    # ---- Position / velocity loop damping (the actual rebound fix) ----
-    # Softer position correction + extra damping in the velocity loop means
-    # when the trajectory ends, the controller decays into the setpoint
-    # instead of springing back across it.
-    "MPC_XY_P":           0.85,  # softer position correction (default 0.95)
-    "MPC_XY_VEL_P_ACC":   1.6,   # slightly lower velocity P (default 1.8)
-    "MPC_XY_VEL_D_ACC":   0.30,  # +damping in velocity loop (default 0.2)
+    # ---- Position / velocity loop damping (rebound knob #2: how the
+    #     controller transitions from "tracking trajectory" to "hold
+    #     setpoint"). Softer position P + lower velocity P + more
+    #     velocity-loop D means when the ramp ends, the controller
+    #     critically damps into the setpoint instead of springing past it.
+    "MPC_XY_P":           0.75,  # softer position correction (default 0.95)
+    "MPC_XY_VEL_P_ACC":   1.2,   # lower velocity P (default 1.8)
+    "MPC_XY_VEL_D_ACC":   0.50,  # +heavy damping (default 0.2)
+    "MPC_Z_P":            0.9,   # softer altitude position loop (default 1.0)
+    "MPC_Z_VEL_P_ACC":    3.5,   # lower altitude velocity P (default 4.0)
+    "MPC_Z_VEL_D_ACC":    0.10,  # +damping on altitude velocity loop
 
-    # ---- Smooth takeoff / land transitions ----
+    # ---- Hover hold (rebound knob #3: tighter deadband around the
+    #     setpoint so the controller doesn't oscillate around it). ----
+    "MPC_HOLD_MAX_XY":    0.4,   # max XY velocity while in hold (default 0.8)
+    "MPC_HOLD_MAX_Z":     0.3,   # max Z velocity while in hold (default 0.6)
+
+    # ---- Takeoff / land transitions ----
     "MPC_TKO_SPEED":      1.5,   # takeoff climb speed [m/s]
     "MPC_TKO_RAMP_T":     2.0,   # takeoff ramp time [s]
     "MPC_LAND_SPEED":     0.7,   # touchdown speed [m/s]
