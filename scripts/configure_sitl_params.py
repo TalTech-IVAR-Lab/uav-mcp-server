@@ -191,35 +191,37 @@ SMOOTH_FLIGHT_PARAMS: dict[str, float] = {
     "MC_ROLL_P":          5.5,
     "MC_PITCH_P":         5.5,
 
-    # YAW — experiment 2.
-    #   Experiment 1 (rate-loop heavily damped, outer-loop softened) made
-    #   the *motion* smooth but caused ~50 % heading overshoot before
-    #   returning to setpoint. Classic outer-loop underdamping + rate-loop
-    #   lag: by the time the controller realised the drone was at target,
-    #   it had already coasted past it.
+    # YAW — experiment 3.
+    #   PX4's outer yaw loop is P-only (no D on heading), so overshoot is
+    #   inherent unless the drone has very little angular momentum when
+    #   it reaches the setpoint. Experiment 2 still overshot, so we go
+    #   harder on the *momentum* side and bias the outer P *above* default
+    #   so it produces a stronger braking rate as soon as the setpoint
+    #   sign flips at the target.
     #
-    #   Walk both back toward sanity:
-    #   MC_YAW_P     1.8  → 2.4   restore outer-loop authority so it
-    #                             actually brakes near setpoint. Still
-    #                             softer than PX4 default 2.8.
-    #   MC_YAWRATE_K 0.85 → 0.95  closer to default — reduces rate-loop
-    #                             lag that fed the overshoot.
-    #   MC_YAWRATE_P 0.18 → 0.20  default; we don't need P reduction once
-    #                             the loop has D damping.
-    #   MC_YAWRATE_D 0.04 → 0.025 keep derivative damping for smoothness
-    #                             but lighter, so the inner loop doesn't
-    #                             over-resist the braking torque the outer
-    #                             loop is now commanding.
-    "MC_YAW_P":           2.4,
-    "MC_YAWRATE_K":       0.95,
+    #   MC_YAW_P     2.4  → 3.2  ABOVE PX4 default (2.8). The rate
+    #                            setpoint goes negative faster after the
+    #                            drone passes through target heading.
+    #   MC_YAWRATE_K 0.95 → 1.0  default — full braking authority in the
+    #                            inner loop.
+    #   MC_YAWRATE_P 0.20        default.
+    #   MC_YAWRATE_D 0.025 → 0.05  more derivative damping → the inner
+    #                            loop doesn't overshoot the rate
+    #                            setpoint either.
+    #   MPC_YAWRAUTO_MAX 18 → 10 deg/s   primary momentum knob
+    #   MPC_MAN_Y_MAX    35 → 20 deg/s
+    #
+    #   A 90° turn now takes ~9 s but should stop within ~2° of target
+    #   the first time. Trade speed for precision — if it ever feels too
+    #   slow, the *first* knob to relax is MPC_YAWRAUTO_MAX, not MC_YAW_P
+    #   (relaxing P will re-introduce overshoot).
+    "MC_YAW_P":           3.2,
+    "MC_YAWRATE_K":       1.0,
     "MC_YAWRATE_P":       0.20,
-    "MC_YAWRATE_D":       0.025,
+    "MC_YAWRATE_D":       0.05,
 }
-# Tighten the headline yaw rate caps further so any residual overshoot is
-# bounded by less initial momentum. 18 deg/s feels deliberate without
-# being slow; 35 deg/s manual is still snappy for joystick / WASD.
-SMOOTH_FLIGHT_PARAMS["MPC_YAWRAUTO_MAX"] = 18.0
-SMOOTH_FLIGHT_PARAMS["MPC_MAN_Y_MAX"]   = 35.0
+SMOOTH_FLIGHT_PARAMS["MPC_YAWRAUTO_MAX"] = 10.0
+SMOOTH_FLIGHT_PARAMS["MPC_MAN_Y_MAX"]   = 20.0
 
 
 async def run(args: argparse.Namespace) -> None:
