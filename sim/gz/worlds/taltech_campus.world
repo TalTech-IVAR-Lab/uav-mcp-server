@@ -4,9 +4,16 @@
 
         <!-- World-scoped sensor inputs (required for the gz-sim sensor plugins
              registered in PX4's server.config to produce data).
-             magnetic_field values are TalTech-area WMM 2025 (Tallinn, Estonia)
-             in ENU/Tesla: north ~16.7 µT, east ~3.0 µT, down ~50.7 µT. -->
-        <magnetic_field>1.67e-05 3.0e-06 5.07e-05</magnetic_field>
+             magnetic_field values are TalTech-area WMM 2025 (Tallinn, Estonia).
+             The element is ENU/Tesla = (East, North, Up). Tallinn field is
+             north ~16.7 µT, east ~3.0 µT, down ~50.7 µT, so in ENU that is
+             East = +3.0e-06, North = +1.67e-05, Up = -5.07e-05 (down ⇒ Up<0).
+             The previous value listed the NED triple (north, east, down) in the
+             ENU slots, which rotated the EKF's magnetic north ~70° and inverted
+             the inclination — a large constant yaw bias that showed up as the
+             camera-target projection landing at the wrong bearing (error growing
+             with range). -->
+        <magnetic_field>3.0e-06 1.67e-05 -5.07e-05</magnetic_field>
         <atmosphere type="adiabatic"/>
 
         <light type="directional" name="sun">

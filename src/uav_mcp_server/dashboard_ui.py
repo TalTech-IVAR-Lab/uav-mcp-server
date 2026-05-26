@@ -110,6 +110,12 @@ DASHBOARD_HTML = """\
   .chip.err .dot   { background: var(--danger); }
   .chip.live       { background: var(--accent-dim); border-color: rgba(245,197,24,0.15); color: var(--accent); }
   .chip.live .dot  { background: var(--accent); }
+  .layout-btn {
+    cursor: pointer; color: var(--text); font-family: inherit;
+    transition: background 0.15s, border-color 0.15s;
+  }
+  .layout-btn:hover { background: var(--accent-dim); border-color: rgba(245,197,24,0.25); color: var(--accent); }
+  .layout-btn:active { transform: translateY(1px); }
 
 
   /* ── Resizers ── */
@@ -140,16 +146,30 @@ DASHBOARD_HTML = """\
   .resizer-v::after { left: 7px; right: 7px; top: 0; bottom: 0; }
   .resizer-h::after { top: 7px; bottom: 7px; left: 0; right: 0; }
 
-  /* ── Dashboard Grid ── */
+  /* ── Dashboard Grid ──
+     Two stacked rows. The shared horizontal divider (drag-h) sets the row
+     split (common height). Each row is its own grid with INDEPENDENT column
+     widths, so the bottom row's panel widths are adjusted separately from the
+     top row's. JS overrides the column templates from saved/dragged values. */
   .dashboard {
     position: relative;
     display: grid;
-    grid-template-columns: 320px 1fr 640px;
+    grid-template-columns: 1fr;
     grid-template-rows: 1fr 350px;
     gap: 16px;
     height: 100%;
     min-height: 0;
   }
+  .dashboard-row {
+    display: grid;
+    gap: 16px;
+    min-height: 0;
+    min-width: 0;
+  }
+  /* Top row: visual feed | map. Bottom row: manual | commands | telemetry.
+     Defaults preserve the previous 320 / 1fr / 640 proportions. */
+  .top-row    { grid-template-columns: 1fr 640px; }
+  .bottom-row { grid-template-columns: 320px 1fr 640px; }
 
   /* ── Panel Base ── */
   .panel {
@@ -157,17 +177,21 @@ DASHBOARD_HTML = """\
     background: var(--panel-bg);
     border: 1px solid var(--panel-border);
     border-radius: var(--radius);
-    overflow: hidden; min-height: 0;
+    overflow: hidden; min-height: 0; min-width: 0;
   }
-  .visual-panel   { grid-column: 1 / span 2; grid-row: 1; border: none; background: #000; }
+  /* grid-row: 1 is explicit on every panel: the bottom row's source order
+     (telemetry, commands, manual) is the reverse of its column order, and CSS
+     grid's auto-placement cursor only moves forward — without a pinned row each
+     earlier-column panel would be bumped onto a new row (a staircase). */
+  .visual-panel   { grid-column: 1; grid-row: 1; border: none; background: #000; }
   .visual-panel .panel-head { display: none; }
   .visual-panel .panel-body { padding: 0; }
   .camera-stage { border-radius: 0; border: none; height: 100%; }
 
-  .map-panel      { grid-column: 3; grid-row: 1; }
-  .commands-panel { grid-column: 2; grid-row: 2; }
-  .status-panel   { grid-column: 3; grid-row: 2; }
-  .controls-panel { grid-column: 1; grid-row: 2; }
+  .map-panel      { grid-column: 2; grid-row: 1; }
+  .controls-panel { grid-column: 1; grid-row: 1; }
+  .commands-panel { grid-column: 2; grid-row: 1; }
+  .status-panel   { grid-column: 3; grid-row: 1; }
 
   .panel-head {
     display: flex; justify-content: space-between; align-items: center;
@@ -645,14 +669,17 @@ DASHBOARD_HTML = """\
       <div id="conn-chip" class="chip err"><span class="dot"></span><span>Backend offline</span></div>
       <div id="camera-chip" class="chip warn"><span class="dot"></span><span>Camera pending</span></div>
       <div id="control-chip" class="chip"><span class="dot"></span><span>Manual locked</span></div>
+      <button id="save-layout-btn" class="chip layout-btn" type="button" title="Save the current panel layout (double-click to reset)"><span>Save Layout</span></button>
     </div>
   </header>
 
     <main class="dashboard" id="dashboard">
     <!-- ═══ Drag Resizers ═══ -->
-    <div id="drag-v-left" class="resizer-v"></div>
-    <div id="drag-v-right" class="resizer-v right"></div>
+    <div id="drag-top-right" class="resizer-v right"></div>
+    <div id="drag-bot-left" class="resizer-v"></div>
+    <div id="drag-bot-right" class="resizer-v right"></div>
     <div id="drag-h" class="resizer-h"></div>
+    <div class="dashboard-row top-row" id="top-row">
     <!-- ═══ Visual Targeting ═══ -->
     <article class="panel visual-panel">
       <div class="panel-head">
@@ -712,7 +739,9 @@ DASHBOARD_HTML = """\
         </div>
       </div>
     </article>
+    </div><!-- /top-row -->
 
+    <div class="dashboard-row bottom-row" id="bottom-row">
     <!-- ═══ Telemetry ═══ -->
     <article class="panel status-panel">
       <div class="panel-head">
@@ -848,6 +877,7 @@ DASHBOARD_HTML = """\
         <div class="manual-meta" id="manual-summary">Enable toggle to accept keyboard controls.</div>
       </div>
     </article>
+    </div><!-- /bottom-row -->
   </main>
 </div>
 
@@ -1044,6 +1074,33 @@ DASHBOARD_HTML = """\
     if (appState.selection && appState.selection.projection) return 'camera';
     if (appState.mapTarget) return 'map';
     return null;
+  }
+
+  // Shape the active target (camera projection or map pin) into the
+  // AssistantTarget the server expects, so phrases like "orbit the selected
+  // target" resolve against the real selection instead of being handed to the
+  // vision model (which has no descriptor and can only answer "ambiguous").
+  function buildSelectedTargetPayload() {
+    var source = getActiveTargetSource();
+    var src = null;
+    var origin = null;
+    if (source === 'camera' && appState.selection && appState.selection.projection) {
+      src = appState.selection.projection;
+      origin = 'camera_vision';
+    } else if (source === 'map' && appState.mapTarget) {
+      src = appState.mapTarget;
+      origin = 'map';
+    }
+    if (!src || src.latitude_deg == null || src.longitude_deg == null) return null;
+    var payload = {
+      source: src.source || origin,
+      latitude_deg: src.latitude_deg,
+      longitude_deg: src.longitude_deg,
+    };
+    ['absolute_altitude_m', 'north_m', 'east_m', 'distance_m', 'label'].forEach(function(k) {
+      if (src[k] != null) payload[k] = src[k];
+    });
+    return payload;
   }
 
   function updateTargetActionControls() {
@@ -2069,6 +2126,8 @@ DASHBOARD_HTML = """\
     var payload = { text: text || '' };
     if (plan && Array.isArray(plan.proposed_calls)) payload.proposed_calls = plan.proposed_calls;
     if (plan && plan.assistant_text) payload.assistant_text = plan.assistant_text;
+    var selectedTarget = (plan && plan.selected_target) || buildSelectedTargetPayload();
+    if (selectedTarget) payload.selected_target = selectedTarget;
     var result = await fetchJSON('/dashboard/api/assistant/execute', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -2101,10 +2160,13 @@ DASHBOARD_HTML = """\
     appState.assistant.busy = true;
     updateChatBusyState();
     try {
+      var planPayload = { text: trimmed };
+      var planTarget = buildSelectedTargetPayload();
+      if (planTarget) planPayload.selected_target = planTarget;
       var result = await fetchJSON('/dashboard/api/assistant/plan', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: trimmed }),
+        body: JSON.stringify(planPayload),
       });
       if (result.selected_target) {
         appState.mapTarget = result.selected_target;
@@ -2536,32 +2598,77 @@ DASHBOARD_HTML = """\
 
 
   /* ── Layout Resizers ── */
+  // Persisted layout geometry. The bottom row has its own left/right column
+  // widths so its three panels resize independently of the top row, which only
+  // tracks its own right-column (map) width. rowBottom is shared (common
+  // height). Saved to localStorage on demand via the header "Save Layout".
+  var LAYOUT_KEY = 'uav.dashboard.layout.v2';
+  var LAYOUT_DEFAULT = { topRight: 640, botLeft: 320, botRight: 640, rowBottom: 350 };
+  var layout = Object.assign({}, LAYOUT_DEFAULT);
+
+  function loadLayout() {
+    try {
+      var raw = window.localStorage.getItem(LAYOUT_KEY);
+      if (!raw) return;
+      var saved = JSON.parse(raw);
+      ['topRight', 'botLeft', 'botRight', 'rowBottom'].forEach(function(k) {
+        if (typeof saved[k] === 'number' && isFinite(saved[k])) layout[k] = saved[k];
+      });
+    } catch (_) { /* corrupt/absent storage → defaults */ }
+  }
+
   function initResizers() {
     var dashboard = $('dashboard');
     if (!dashboard) return;
 
-    var colLeft = 320;
-    var colRight = 640;
-    var rowBottom = 350;
     var gap = 16;
-
-    var dragVLeft = $('drag-v-left');
-    var dragVRight = $('drag-v-right');
+    var topRow = $('top-row');
+    var botRow = $('bottom-row');
+    var dragTopRight = $('drag-top-right');
+    var dragBotLeft = $('drag-bot-left');
+    var dragBotRight = $('drag-bot-right');
     var dragH = $('drag-h');
 
+    loadLayout();
+
+    function clampLayout() {
+      var w = dashboard.clientWidth;
+      var h = dashboard.clientHeight;
+      if (w > 0) {
+        layout.topRight = Math.max(200, Math.min(layout.topRight, w - 200));
+        // Bottom row keeps a >=200px middle column between the two dividers.
+        layout.botLeft = Math.max(200, Math.min(layout.botLeft, w - 400));
+        layout.botRight = Math.max(200, Math.min(layout.botRight, w - layout.botLeft - 200));
+      }
+      if (h > 0) {
+        layout.rowBottom = Math.max(150, Math.min(layout.rowBottom, h - 200));
+      }
+    }
+
     function updateGrid() {
-      dashboard.style.gridTemplateColumns = colLeft + 'px 1fr ' + colRight + 'px';
-      dashboard.style.gridTemplateRows = '1fr ' + rowBottom + 'px';
+      clampLayout();
+      topRow.style.gridTemplateColumns = '1fr ' + layout.topRight + 'px';
+      botRow.style.gridTemplateColumns = layout.botLeft + 'px 1fr ' + layout.botRight + 'px';
+      dashboard.style.gridTemplateRows = '1fr ' + layout.rowBottom + 'px';
 
-      dragVLeft.style.left = colLeft + (gap/2) + 'px';
-      dragVLeft.style.bottom = '0px';
-      dragVLeft.style.height = rowBottom + 'px';
+      var topH = dashboard.clientHeight - layout.rowBottom - gap;
 
-      dragVRight.style.right = colRight + (gap/2) + 'px';
-      dragVRight.style.top = '0px';
-      dragVRight.style.bottom = '0px';
+      // Top row's single divider (visual | map): spans only the top row.
+      dragTopRight.style.right = layout.topRight + (gap/2) + 'px';
+      dragTopRight.style.top = '0px';
+      dragTopRight.style.height = Math.max(0, topH) + 'px';
 
-      dragH.style.bottom = rowBottom + (gap/2) + 'px';
+      // Bottom row's two dividers: span only the bottom row.
+      dragBotLeft.style.left = layout.botLeft + (gap/2) + 'px';
+      dragBotLeft.style.bottom = '0px';
+      dragBotLeft.style.height = layout.rowBottom + 'px';
+
+      dragBotRight.style.right = layout.botRight + (gap/2) + 'px';
+      dragBotRight.style.bottom = '0px';
+      dragBotRight.style.height = layout.rowBottom + 'px';
+
+      // Shared height divider: full width.
+      dragH.style.bottom = layout.rowBottom + (gap/2) + 'px';
       dragH.style.left = '0px';
       dragH.style.right = '0px';
 
@@ -2574,23 +2681,21 @@ DASHBOARD_HTML = """\
       if (!el) return;
       var startVal = 0;
       var startCoord = 0;
-      var rect = null;
 
       function onPointerMove(e) {
-        if (type === 'v-left') {
-          var newLeft = startVal + (e.clientX - startCoord);
-          colLeft = Math.max(200, Math.min(newLeft, dashboard.clientWidth - colRight - 200));
-        } else if (type === 'v-right') {
-          var newRight = startVal - (e.clientX - startCoord);
-          colRight = Math.max(200, Math.min(newRight, dashboard.clientWidth - colLeft - 200));
+        if (type === 'top-right') {
+          layout.topRight = startVal - (e.clientX - startCoord);
+        } else if (type === 'bot-left') {
+          layout.botLeft = startVal + (e.clientX - startCoord);
+        } else if (type === 'bot-right') {
+          layout.botRight = startVal - (e.clientX - startCoord);
         } else if (type === 'h') {
-          var newBottom = startVal - (e.clientY - startCoord);
-          rowBottom = Math.max(150, Math.min(newBottom, dashboard.clientHeight - 200));
+          layout.rowBottom = startVal - (e.clientY - startCoord);
         }
         updateGrid();
       }
 
-      function onPointerUp(e) {
+      function onPointerUp() {
         el.classList.remove('dragging');
         document.removeEventListener('pointermove', onPointerMove);
         document.removeEventListener('pointerup', onPointerUp);
@@ -2600,10 +2705,10 @@ DASHBOARD_HTML = """\
       el.addEventListener('pointerdown', function(e) {
         e.preventDefault();
         el.classList.add('dragging');
-        rect = dashboard.getBoundingClientRect();
-        if (type === 'v-left') startVal = colLeft;
-        if (type === 'v-right') startVal = colRight;
-        if (type === 'h') startVal = rowBottom;
+        if (type === 'top-right') startVal = layout.topRight;
+        if (type === 'bot-left') startVal = layout.botLeft;
+        if (type === 'bot-right') startVal = layout.botRight;
+        if (type === 'h') startVal = layout.rowBottom;
         startCoord = type === 'h' ? e.clientY : e.clientX;
         document.addEventListener('pointermove', onPointerMove);
         document.addEventListener('pointerup', onPointerUp);
@@ -2611,12 +2716,33 @@ DASHBOARD_HTML = """\
       });
     }
 
-    attachDrag(dragVLeft, 'v-left');
-    attachDrag(dragVRight, 'v-right');
+    attachDrag(dragTopRight, 'top-right');
+    attachDrag(dragBotLeft, 'bot-left');
+    attachDrag(dragBotRight, 'bot-right');
     attachDrag(dragH, 'h');
 
     updateGrid();
     window.addEventListener('resize', updateGrid);
+
+    // Wire the header "Save Layout" button to persist the current geometry.
+    var saveBtn = $('save-layout-btn');
+    if (saveBtn) {
+      saveBtn.addEventListener('click', function() {
+        try {
+          window.localStorage.setItem(LAYOUT_KEY, JSON.stringify(layout));
+          notify('Layout saved.', 'ok');
+        } catch (_) {
+          notify('Could not save layout (storage unavailable).', 'err');
+        }
+      });
+      // Reset to defaults on shift-click / long-press affordance.
+      saveBtn.addEventListener('dblclick', function() {
+        layout = Object.assign({}, LAYOUT_DEFAULT);
+        try { window.localStorage.removeItem(LAYOUT_KEY); } catch (_) {}
+        updateGrid();
+        notify('Layout reset to default.', 'info');
+      });
+    }
   }
 
   /* ── Tab Switching ── */

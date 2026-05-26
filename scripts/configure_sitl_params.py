@@ -121,107 +121,90 @@ async def _set_float_if_needed(drone: Any, name: str, value: float) -> float:
 # speed, smooth ramp in/out, no springback.
 #
 # Safety-relevant params (battery, geofence, COM_*) are untouched.
+#
+# AGILE PROFILE (current). The old "rebound" had two real root causes, now
+# fixed at the source: (1) the world <magnetic_field> was NED-ordered in an
+# ENU slot, so the EKF yaw estimate wobbled; (2) the yaw rate-loop integral
+# wound up over long turns and unloaded past the target. With the field
+# corrected and MC_YAWRATE_I=0, the airframe no longer needs the glacial
+# accel/jerk limits earlier experiments leaned on. So we run a fast, snappy
+# envelope and keep only the genuine anti-overshoot knobs (a little velocity-
+# loop D, zero yaw integral). Result: quick and agile, still settles clean.
 SMOOTH_FLIGHT_PARAMS: dict[str, float] = {
     # ---- Translation top-end (fast cruise) ----
-    "MPC_XY_VEL_MAX":     5.0,   # cruise speed cap [m/s]
-    "MPC_XY_CRUISE":      4.0,   # auto-mode cruise [m/s]
-    "MPC_VEL_MANUAL":     5.0,   # manual position-mode cap [m/s]
+    "MPC_XY_VEL_MAX":    10.0,   # cruise speed cap [m/s]
+    "MPC_XY_CRUISE":      9.0,   # auto-mode cruise [m/s]
+    "MPC_VEL_MANUAL":    10.0,   # manual position-mode cap [m/s]
 
-    # ---- Ramp limits (rebound knob #1: how aggressively the trajectory
-    #     generator ramps the velocity setpoint). Dialed lower so the
-    #     velocity loop never has to chase a step. Sub-second cruise
-    #     spool-up still feels responsive but no kinetic overshoot. ----
-    "MPC_ACC_HOR_MAX":    1.5,   # max horizontal accel [m/s²]
-    "MPC_ACC_HOR":        1.2,   # nominal horizontal accel [m/s²]
-    "MPC_JERK_AUTO":      3.0,   # auto-mode jerk limit [m/s³]
-    "MPC_JERK_MAX":       3.0,   # max jerk [m/s³]
+    # ---- Ramp limits: snappy accel/jerk for an agile feel. The velocity-loop
+    #     D below keeps the ramp-out from springing past the setpoint. ----
+    "MPC_ACC_HOR_MAX":    6.0,   # max horizontal accel [m/s²]
+    "MPC_ACC_HOR":        5.0,   # nominal horizontal accel [m/s²]
+    "MPC_JERK_AUTO":     15.0,   # auto-mode jerk limit [m/s³]
+    "MPC_JERK_MAX":      15.0,   # max jerk [m/s³]
 
     # ---- Vertical envelope (fast climb / descent) ----
-    "MPC_Z_VEL_MAX_UP":   5.0,   # climb rate [m/s]
-    "MPC_Z_VEL_MAX_DN":   4.0,   # descent rate [m/s]
-    "MPC_ACC_UP_MAX":     4.0,   # vertical accel up [m/s²]
-    "MPC_ACC_DOWN_MAX":   4.0,   # vertical accel down [m/s²]
+    "MPC_Z_VEL_MAX_UP":   6.0,   # climb rate [m/s]
+    "MPC_Z_VEL_MAX_DN":   5.0,   # descent rate [m/s]
+    "MPC_ACC_UP_MAX":     6.0,   # vertical accel up [m/s²]
+    "MPC_ACC_DOWN_MAX":   6.0,   # vertical accel down [m/s²]
 
-    # ---- Yaw ----
-    "MPC_YAWRAUTO_MAX":  45.0,   # auto yaw rate [deg/s]
-    "MPC_MAN_Y_MAX":     90.0,   # manual yaw rate [deg/s]
+    # ---- Position / velocity loop. Back near PX4 default for crisp tracking;
+    #     a little extra velocity-loop D is the only retained smoothing. ----
+    "MPC_XY_P":           0.95,  # PX4 default position correction
+    "MPC_XY_VEL_P_ACC":   1.8,   # PX4 default velocity P
+    "MPC_XY_VEL_D_ACC":   0.30,  # mild damping (default 0.2) to settle clean
+    "MPC_Z_P":            1.0,   # default altitude position loop
+    "MPC_Z_VEL_P_ACC":    4.0,   # default altitude velocity P
+    "MPC_Z_VEL_D_ACC":    0.0,   # default
 
-    # ---- Position / velocity loop damping (rebound knob #2: how the
-    #     controller transitions from "tracking trajectory" to "hold
-    #     setpoint"). Softer position P + lower velocity P + more
-    #     velocity-loop D means when the ramp ends, the controller
-    #     critically damps into the setpoint instead of springing past it.
-    "MPC_XY_P":           0.75,  # softer position correction (default 0.95)
-    "MPC_XY_VEL_P_ACC":   1.2,   # lower velocity P (default 1.8)
-    "MPC_XY_VEL_D_ACC":   0.50,  # +heavy damping (default 0.2)
-    "MPC_Z_P":            0.9,   # softer altitude position loop (default 1.0)
-    "MPC_Z_VEL_P_ACC":    3.5,   # lower altitude velocity P (default 4.0)
-    "MPC_Z_VEL_D_ACC":    0.10,  # +damping on altitude velocity loop
+    # ---- Hover hold (PX4 defaults) ----
+    "MPC_HOLD_MAX_XY":    0.8,
+    "MPC_HOLD_MAX_Z":     0.6,
 
-    # ---- Hover hold (rebound knob #3: tighter deadband around the
-    #     setpoint so the controller doesn't oscillate around it). ----
-    "MPC_HOLD_MAX_XY":    0.4,   # max XY velocity while in hold (default 0.8)
-    "MPC_HOLD_MAX_Z":     0.3,   # max Z velocity while in hold (default 0.6)
+    # ---- Takeoff / land transitions (a touch snappier) ----
+    "MPC_TKO_SPEED":      2.0,   # takeoff climb speed [m/s]
+    "MPC_TKO_RAMP_T":     1.5,   # takeoff ramp time [s]
+    "MPC_LAND_SPEED":     0.8,   # touchdown speed [m/s]
 
-    # ---- Takeoff / land transitions ----
-    "MPC_TKO_SPEED":      1.5,   # takeoff climb speed [m/s]
-    "MPC_TKO_RAMP_T":     2.0,   # takeoff ramp time [s]
-    "MPC_LAND_SPEED":     0.7,   # touchdown speed [m/s]
+    # ---- Attitude rate loops (roll/pitch). Agile = PX4-default firmness so
+    #     WASD translation snaps to attitude without feeling mushy. ----
+    "MC_ROLLRATE_K":      1.0,
+    "MC_ROLLRATE_P":      0.15,
+    "MC_ROLLRATE_D":      0.003,
+    "MC_PITCHRATE_K":     1.0,
+    "MC_PITCHRATE_P":     0.15,
+    "MC_PITCHRATE_D":     0.003,
+    "MC_ROLL_P":          6.5,   # PX4 default - crisp attitude
+    "MC_PITCH_P":         6.5,
 
-    # ---- Attitude rate loops (the inner controller — rebound knob #4) ----
-    # The outer MPC sends an attitude setpoint to satisfy the velocity
-    # setpoint. Even with the trajectory smoothed, if the rate loop is
-    # under-damped the airframe bobs around the commanded attitude before
-    # settling. PX4 x500 defaults are tuned for a real airframe with sensor
-    # noise; SITL has clean feedback, so we can run softer P + more D
-    # without losing tracking precision.
+    # ---- YAW (agile, rebound-free) ----
+    # Heading repositions run through GotoControl, whose HeadingSmoothing emits
+    # a trapezoidal yaw feed-forward bounded by MPC_YAWRAUTO_MAX (rate) and
+    # MPC_YAWRAUTO_ACC (accel/decel) that decelerates the rate to zero AT the
+    # target, so the commanded trajectory cannot overshoot. The old rebound was
+    # the corrupted mag field (EKF yaw wobble, fixed in the world) plus rate-loop
+    # integral windup. We keep MC_YAWRATE_I=0 (the airframe needs no yaw integral
+    # — gravity exerts no yaw torque) and otherwise run PX4-default-firm gains
+    # for fast, crisp heading control.
     #
-    # ROLL / PITCH (affect WASD feel):
-    #   K  1.00 → 0.90   slightly lower overall rate-loop gain
-    #   P  0.15 → 0.13   gentler corrective torque
-    #   D  0.003 → 0.005 ~1.7× damping on the rate error derivative
-    "MC_ROLLRATE_K":      0.90,
-    "MC_ROLLRATE_P":      0.13,
-    "MC_ROLLRATE_D":      0.005,
-    "MC_PITCHRATE_K":     0.90,
-    "MC_PITCHRATE_P":     0.13,
-    "MC_PITCHRATE_D":     0.005,
-    # Outer attitude loop on roll/pitch (default 6.5) — softer pulls the
-    # airframe toward setpoint without snapping past it.
-    "MC_ROLL_P":          5.5,
-    "MC_PITCH_P":         5.5,
-
-    # YAW — experiment 3.
-    #   PX4's outer yaw loop is P-only (no D on heading), so overshoot is
-    #   inherent unless the drone has very little angular momentum when
-    #   it reaches the setpoint. Experiment 2 still overshot, so we go
-    #   harder on the *momentum* side and bias the outer P *above* default
-    #   so it produces a stronger braking rate as soon as the setpoint
-    #   sign flips at the target.
+    # MPC_YAWRAUTO_MAX also sets the slew rate of the ORBIT yaw setpoint
+    # (FlightTaskOrbit), so it must exceed the orbit angular rate ω = v/r or the
+    # target drifts off-centre on small radii. At 60 deg/s (=1.05 rad/s) even a
+    # 5 m / 3 m·s⁻¹ orbit (ω≈34 deg/s) tracks with margin; orbit speed is also
+    # clamped to the yaw capability server-side as a belt-and-suspenders.
     #
-    #   MC_YAW_P     2.4  → 3.2  ABOVE PX4 default (2.8). The rate
-    #                            setpoint goes negative faster after the
-    #                            drone passes through target heading.
-    #   MC_YAWRATE_K 0.95 → 1.0  default — full braking authority in the
-    #                            inner loop.
-    #   MC_YAWRATE_P 0.20        default.
-    #   MC_YAWRATE_D 0.025 → 0.05  more derivative damping → the inner
-    #                            loop doesn't overshoot the rate
-    #                            setpoint either.
-    #   MPC_YAWRAUTO_MAX 18 → 10 deg/s   primary momentum knob
-    #   MPC_MAN_Y_MAX    35 → 20 deg/s
-    #
-    #   A 90° turn now takes ~9 s but should stop within ~2° of target
-    #   the first time. Trade speed for precision — if it ever feels too
-    #   slow, the *first* knob to relax is MPC_YAWRAUTO_MAX, not MC_YAW_P
-    #   (relaxing P will re-introduce overshoot).
-    "MC_YAW_P":           3.2,
+    # If any rebound reappears now that agility is the goal, the lever is
+    # MC_YAW_P (2.8→2.4), NOT the rate cap — lowering the cap would re-break orbit.
+    "MC_YAW_P":           2.8,   # PX4 default — crisp heading, low orbit-framing lag
     "MC_YAWRATE_K":       1.0,
-    "MC_YAWRATE_P":       0.20,
-    "MC_YAWRATE_D":       0.05,
+    "MC_YAWRATE_P":       0.25,
+    "MC_YAWRATE_I":       0.0,   # zero integral: no wound-up torque to unload → no rebound
+    "MC_YAWRATE_D":       0.03,
 }
-SMOOTH_FLIGHT_PARAMS["MPC_YAWRAUTO_MAX"] = 10.0
-SMOOTH_FLIGHT_PARAMS["MPC_MAN_Y_MAX"]   = 20.0
+SMOOTH_FLIGHT_PARAMS["MPC_YAWRAUTO_MAX"] = 60.0   # fast yaw + small-orbit framing
+SMOOTH_FLIGHT_PARAMS["MPC_YAWRAUTO_ACC"] = 60.0   # PX4 default accel/decel
+SMOOTH_FLIGHT_PARAMS["MPC_MAN_Y_MAX"]    = 120.0  # agile manual yaw
 
 
 async def run(args: argparse.Namespace) -> None:

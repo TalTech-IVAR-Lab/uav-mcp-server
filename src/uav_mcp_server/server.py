@@ -10,7 +10,7 @@ import re
 from collections import deque
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from math import atan2, degrees
+from math import atan2, degrees, radians
 from pathlib import Path
 from time import monotonic
 from typing import Any
@@ -1544,6 +1544,21 @@ def create_server(
             **_target_bearing_context(target_latitude_deg, target_longitude_deg),
         }
 
+    def _orbit_speed_for_radius(requested_velocity_m_s: float, radius_m: float) -> float:
+        """Cap orbit speed so the yaw can keep the target centred.
+
+        PX4 slews the orbit yaw setpoint at MPC_YAWRAUTO_MAX; the orbit's
+        angular rate is omega = v / r. If v / r exceeds the yaw slew rate the
+        heading lags and the target drifts off-frame (the drone still flies the
+        circle, it just stops facing the centre). Clamp v <= safety * omega_max * r.
+        """
+        settings = resolved_services.settings
+        omega_max_rad_s = radians(settings.orbit_yaw_rate_limit_deg_s)
+        max_velocity_m_s = settings.orbit_yaw_rate_safety * omega_max_rad_s * radius_m
+        if max_velocity_m_s <= 0.0:
+            return requested_velocity_m_s
+        return min(requested_velocity_m_s, max_velocity_m_s)
+
     def _resolve_target_orbit(
         *,
         target_latitude_deg: float,
@@ -1574,7 +1589,9 @@ def create_server(
             return None, {
                 **geometry,
                 "absolute_altitude_m": resolved_absolute_altitude_m,
-                "velocity_m_s": requested_velocity_m_s,
+                "velocity_m_s": _orbit_speed_for_radius(
+                    requested_velocity_m_s, requested_radius_m
+                ),
             }
         current_distance_m = haversine_distance_m(
             snapshot.latitude_deg,
@@ -1596,11 +1613,16 @@ def create_server(
                 geometry,
             )
         resolved_radius_m = max(requested_radius_m, current_distance_m)
+        capped_velocity_m_s = _orbit_speed_for_radius(
+            requested_velocity_m_s, resolved_radius_m
+        )
+        if capped_velocity_m_s < requested_velocity_m_s - 1e-3:
+            geometry["velocity_capped_for_yaw"] = True
         return None, {
             **geometry,
             "resolved_radius_m": round(resolved_radius_m, 2),
             "absolute_altitude_m": resolved_absolute_altitude_m,
-            "velocity_m_s": requested_velocity_m_s,
+            "velocity_m_s": capped_velocity_m_s,
         }
 
     async def _dashboard_select_and_approach(params: dict[str, Any]) -> CommandResult:
@@ -1668,10 +1690,19 @@ def create_server(
                     image_width_px=camera_params.width_px,
                     image_height_px=camera_params.height_px,
                 ),
-                timeout=8.0,
+                timeout=resolved_services.settings.assistant_vision_timeout_s,
+            )
+        except (asyncio.TimeoutError, TimeoutError):
+            # asyncio.TimeoutError stringifies to '', which previously left the
+            # operator-facing message as a bare "...could not resolve...: ".
+            return selected_target, None, (
+                "Vision analysis timed out after "
+                f"{resolved_services.settings.assistant_vision_timeout_s:.0f}s "
+                "(the model service may be slow or rate-limiting). Try again, or "
+                "click the target directly on the camera feed."
             )
         except Exception as exc:
-            return selected_target, None, str(exc)
+            return selected_target, None, (str(exc) or f"{type(exc).__name__}")
 
         vision_dict = visual_target.model_dump(mode="json")
         if not visual_target.found or visual_target.u is None or visual_target.v is None:

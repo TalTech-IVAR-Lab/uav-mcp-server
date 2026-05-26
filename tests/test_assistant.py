@@ -55,6 +55,33 @@ def test_camera_target_resolution_only_triggers_for_visual_target_commands() -> 
         "orbit selected target",
         selected_target=AssistantTarget(latitude_deg=46.0, longitude_deg=6.0),
     )
+    # A bare reference to the existing selection must NOT be handed to vision
+    # when nothing is selected — there is no descriptor to localise, so the
+    # planner should ask the operator to select a target instead.
+    assert not needs_camera_target_resolution("orbit the selected target")
+    assert not needs_camera_target_resolution("orbit the selected target", selected_target=None)
+
+
+def test_target_orbit_call_uses_current_standoff_and_altitude() -> None:
+    from uav_mcp_server.assistant import _target_orbit_call
+
+    settings = Settings()
+    snapshot = _snapshot()
+    # Target ~40 m north of the aircraft, on the ground (low absolute altitude).
+    target = AssistantTarget(
+        latitude_deg=46.2331,
+        longitude_deg=6.0556,
+        absolute_altitude_m=141.0,
+        north_m=40.0,
+        east_m=0.0,
+        distance_m=42.0,
+    )
+    call = _target_orbit_call(target, snapshot, settings)
+    # Radius follows the live horizontal standoff (40 m), not a fixed 12 m,
+    # so PX4 starts circling in place instead of flying inward.
+    assert call.arguments["radius_m"] == pytest.approx(40.0, abs=0.5)
+    # Altitude holds the aircraft's current height, not the ground footpoint.
+    assert call.arguments["absolute_altitude_m"] == pytest.approx(150.0)
 
 
 def test_camera_target_from_gemini_uses_bbox_footpoint_when_pixel_missing() -> None:

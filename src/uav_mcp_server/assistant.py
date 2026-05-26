@@ -214,6 +214,23 @@ _CAMERA_TARGET_CUE_RE = re.compile(
     r")\b",
     re.IGNORECASE,
 )
+# "the selected/current/locked target" etc. point at an *existing* UI
+# selection rather than describing a feature in the frame. When nothing is
+# selected there is no descriptor for vision to act on, so we must not hand
+# such phrasing to the vision model (it can only answer "ambiguous").
+_SELECTION_REFERENCE_RE = re.compile(
+    r"\b(select(ed|ion)?|chosen|locked|highlighted|current|this|that|the)\s+target\b"
+    r"|\bselected\b",
+    re.IGNORECASE,
+)
+# Concrete things vision can actually localise from the operator's words alone.
+_VISUAL_DESCRIPTOR_RE = re.compile(
+    r"\b("
+    r"camera|image|video|feed|frame|screen|reticle|middle|center|centre|left|right|top|"
+    r"bottom|front|behind|near|visible|building|object|car|vehicle|person|tree"
+    r")\b",
+    re.IGNORECASE,
+)
 
 
 def needs_camera_target_resolution(
@@ -226,7 +243,15 @@ def needs_camera_target_resolution(
     normalized = operator_text.strip()
     if not normalized:
         return False
-    return bool(_CAMERA_TARGET_ACTION_RE.search(normalized) and _CAMERA_TARGET_CUE_RE.search(normalized))
+    if not (_CAMERA_TARGET_ACTION_RE.search(normalized) and _CAMERA_TARGET_CUE_RE.search(normalized)):
+        return False
+    # A bare reference to "the selected target" with no describable visual cue
+    # is a request to act on the existing selection — not to find something in
+    # the frame. Let the planner ask the operator to select a target instead of
+    # asking the vision model to invent one.
+    if _SELECTION_REFERENCE_RE.search(normalized) and not _VISUAL_DESCRIPTOR_RE.search(normalized):
+        return False
+    return True
 
 
 def _normalize_calls(calls: list[AssistantToolCall]) -> list[AssistantToolCall]:
@@ -253,6 +278,25 @@ def _requires_confirmation(calls: list[AssistantToolCall]) -> bool:
     return any(call.name not in READ_ONLY_COMMANDS for call in calls)
 
 
+def _current_standoff_m(
+    target: AssistantTarget,
+    snapshot: TelemetrySnapshot,
+) -> float | None:
+    """Current horizontal distance (m) from the aircraft to the target."""
+    north_m = target.north_m
+    east_m = target.east_m
+    if north_m is None or east_m is None:
+        if snapshot.latitude_deg is None or snapshot.longitude_deg is None:
+            return None
+        north_m, east_m = coordinate_offset_m(
+            snapshot.latitude_deg,
+            snapshot.longitude_deg,
+            target.latitude_deg,
+            target.longitude_deg,
+        )
+    return (north_m**2 + east_m**2) ** 0.5
+
+
 def _target_orbit_call(
     target: AssistantTarget,
     snapshot: TelemetrySnapshot,
@@ -261,15 +305,45 @@ def _target_orbit_call(
     radius_m: float | None = None,
     velocity_m_s: float | None = None,
 ) -> AssistantToolCall:
-    absolute_altitude_m = target.absolute_altitude_m or snapshot.absolute_altitude_m
+    # Orbit from where the aircraft already is: hold the current altitude and
+    # use the *current* horizontal standoff as the radius so PX4 starts
+    # circling immediately instead of first flying in/out to a fixed radius
+    # (which read as "approaching the object first"). An explicit radius_m
+    # from the operator still wins.
+    # Prefer the aircraft's current altitude (so it circles at this height)
+    # over the target's ground-footpoint altitude (which would make it dive).
+    absolute_altitude_m = snapshot.absolute_altitude_m or target.absolute_altitude_m
     if absolute_altitude_m is None:
         home_absolute_altitude_m = snapshot.inferred_home_absolute_altitude_m()
         if home_absolute_altitude_m is not None:
             absolute_altitude_m = home_absolute_altitude_m + settings.default_takeoff_altitude_m
     if absolute_altitude_m is None:
         raise ValueError("Current altitude is unavailable; orbit target altitude cannot be resolved.")
-    resolved_radius = radius_m or max(settings.min_orbit_radius_m, 12.0)
+
+    current_standoff_m = _current_standoff_m(target, snapshot)
+    if radius_m is not None:
+        resolved_radius = radius_m
+    elif current_standoff_m is not None:
+        # Clamp the live standoff into the allowed band; otherwise fall back
+        # to a sane default.
+        resolved_radius = min(
+            max(current_standoff_m, settings.min_orbit_radius_m),
+            settings.max_orbit_radius_m,
+        )
+    else:
+        resolved_radius = max(settings.min_orbit_radius_m, 12.0)
     resolved_velocity = velocity_m_s or min(settings.default_mission_speed_m_s, 3.0)
+    # Cap speed so the yaw can keep the target centred: PX4 slews the orbit yaw
+    # setpoint at MPC_YAWRAUTO_MAX, so v/r must not exceed that rate.
+    from math import radians as _radians
+
+    max_velocity = (
+        settings.orbit_yaw_rate_safety
+        * _radians(settings.orbit_yaw_rate_limit_deg_s)
+        * resolved_radius
+    )
+    if max_velocity > 0.0:
+        resolved_velocity = min(resolved_velocity, max_velocity)
     return AssistantToolCall(
         name="orbit",
         arguments={
@@ -281,7 +355,7 @@ def _target_orbit_call(
         },
         summary=(
             f"Orbit target at {target.latitude_deg:.6f}, {target.longitude_deg:.6f} "
-            f"from the current operating altitude."
+            f"from the current altitude and {resolved_radius:.0f} m standoff."
         ),
     )
 

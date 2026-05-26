@@ -110,6 +110,13 @@ class Settings(BaseSettings):
     max_relative_move_distance_m: float = Field(default=150.0, gt=0)
     min_orbit_radius_m: float = Field(default=5.0, gt=0)
     max_orbit_radius_m: float = Field(default=200.0, gt=0)
+    # Yaw rate (deg/s) the airframe can sustain to keep an orbit target centred.
+    # Must match MPC_YAWRAUTO_MAX in scripts/configure_sitl_params.py — PX4 slews
+    # the orbit yaw setpoint at that rate, so orbit speed is clamped to
+    # v <= orbit_yaw_rate_safety * rad(this) * radius to stop the target drifting
+    # off-frame on small radii.
+    orbit_yaw_rate_limit_deg_s: float = Field(default=60.0, gt=0)
+    orbit_yaw_rate_safety: float = Field(default=0.85, gt=0.0, le=1.0)
     default_takeoff_altitude_m: float = Field(default=10.0, gt=0)
     default_mission_speed_m_s: float = Field(default=6.0, gt=0)
     command_rate_limit_per_sec: int = Field(default=2, ge=1)
@@ -121,6 +128,11 @@ class Settings(BaseSettings):
     assistant_preview_default: bool = Field(default=True)
     assistant_bypass_available: bool = Field(default=True)
     assistant_vision_enabled: bool = Field(default=True)
+    # Wall-clock budget for a single camera-target vision lookup. Must comfortably
+    # exceed the retry budget below (base*2**n backoff over assistant_max_retries
+    # attempts, ~15 s worst case) plus inference, or the lookup is killed mid-retry
+    # and surfaces as an empty/opaque error to the operator.
+    assistant_vision_timeout_s: float = Field(default=25.0, gt=0.0)
     assistant_mcp_url: str | None = Field(default=None)
     # Retry budget for transient Gemini failures (503 UNAVAILABLE, 429
     # RESOURCE_EXHAUSTED, 5xx, timeouts). The plan path falls back to the
