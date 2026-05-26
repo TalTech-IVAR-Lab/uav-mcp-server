@@ -2,6 +2,10 @@
 AGENTS.md
 agents-knowledge-base/
 
+# Local dev notes & scratch — internal only, not for the shared repo
+handoff.md
+scratch/
+
 # Bad pip install artifacts (e.g. pip install =1.0.0)
 =*/
 =*
