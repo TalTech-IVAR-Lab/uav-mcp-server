@@ -223,81 +223,6 @@ OBSERVABILITY_HTML = """\
 </header>
 
 <main class="dashboard">
-  <!-- THESIS EVIDENCE FIRST: source validity and numbers to cite -->
-  <div class="panel col-8">
-    <div class="panel-header">
-      <div class="panel-title">Thesis Evidence Summary</div>
-      <span id="evidence-badge" class="badge warn">Loading</span>
-    </div>
-    <div class="panel-body">
-      <div class="evidence-header">
-        <div class="evidence-kv">
-          <div class="evidence-label">Latency Run</div>
-          <div id="ev-latency-run" class="evidence-value">--</div>
-        </div>
-        <div class="evidence-kv">
-          <div class="evidence-label">Reliability Run</div>
-          <div id="ev-reliability-run" class="evidence-value">--</div>
-        </div>
-        <div class="evidence-kv">
-          <div class="evidence-label">Safety Run</div>
-          <div id="ev-safety-run" class="evidence-value">--</div>
-        </div>
-        <div class="evidence-kv">
-          <div class="evidence-label">Git / Backend</div>
-          <div id="ev-context" class="evidence-value">--</div>
-        </div>
-      </div>
-      <div class="table-container" style="max-height: 260px;">
-        <table>
-          <thead>
-            <tr>
-              <th>Metric</th>
-              <th>Value</th>
-              <th>Unit</th>
-              <th>Source</th>
-            </tr>
-          </thead>
-          <tbody id="thesis-numbers-table">
-            <tr><td colspan="4" style="text-align:center; color: var(--text-muted);">Waiting for thesis metrics.</td></tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
-  </div>
-
-  <div class="panel col-4">
-    <div class="panel-header"><div class="panel-title">Evidence Validity Gates</div></div>
-    <div class="panel-body">
-      <div id="validity-list" class="warning-list">
-        <div class="muted">Waiting for validity checks.</div>
-      </div>
-    </div>
-  </div>
-
-  <div class="panel col-12">
-    <div class="panel-header"><div class="panel-title">Benchmark Source Runs</div></div>
-    <div class="panel-body" style="padding: 0;">
-      <div class="table-container">
-        <table>
-          <thead>
-            <tr>
-              <th>Benchmark</th>
-              <th>Run ID</th>
-              <th>Time</th>
-              <th>Backend</th>
-              <th>Git Commit</th>
-              <th>Dirty</th>
-            </tr>
-          </thead>
-          <tbody id="source-runs-table">
-            <tr><td colspan="6" style="text-align:center; color: var(--text-muted);">Waiting for source run data.</td></tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
-  </div>
-
   <!-- ROW 1: KPIs -->
   <div class="panel col-3 stat-panel">
     <div class="panel-header"><div class="panel-title">API Latency (P95)</div></div>
@@ -397,7 +322,82 @@ OBSERVABILITY_HTML = """\
       </div>
     </div>
   </div>
-  
+
+  <!-- THESIS EVIDENCE FIRST: source validity and numbers to cite -->
+  <div class="panel col-8">
+    <div class="panel-header">
+      <div class="panel-title">Thesis Evidence Summary</div>
+      <span id="evidence-badge" class="badge warn">Loading</span>
+    </div>
+    <div class="panel-body">
+      <div class="evidence-header">
+        <div class="evidence-kv">
+          <div class="evidence-label">Latency Run</div>
+          <div id="ev-latency-run" class="evidence-value">--</div>
+        </div>
+        <div class="evidence-kv">
+          <div class="evidence-label">Reliability Run</div>
+          <div id="ev-reliability-run" class="evidence-value">--</div>
+        </div>
+        <div class="evidence-kv">
+          <div class="evidence-label">Safety Run</div>
+          <div id="ev-safety-run" class="evidence-value">--</div>
+        </div>
+        <div class="evidence-kv">
+          <div class="evidence-label">Git / Backend</div>
+          <div id="ev-context" class="evidence-value">--</div>
+        </div>
+      </div>
+      <div class="table-container" style="max-height: 260px;">
+        <table>
+          <thead>
+            <tr>
+              <th>Metric</th>
+              <th>Value</th>
+              <th>Unit</th>
+              <th>Source</th>
+            </tr>
+          </thead>
+          <tbody id="thesis-numbers-table">
+            <tr><td colspan="4" style="text-align:center; color: var(--text-muted);">Waiting for thesis metrics.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel col-4">
+    <div class="panel-header"><div class="panel-title">Evidence Validity Gates</div></div>
+    <div class="panel-body">
+      <div id="validity-list" class="warning-list">
+        <div class="muted">Waiting for validity checks.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel col-12">
+    <div class="panel-header"><div class="panel-title">Benchmark Source Runs</div></div>
+    <div class="panel-body" style="padding: 0;">
+      <div class="table-container">
+        <table>
+          <thead>
+            <tr>
+              <th>Benchmark</th>
+              <th>Run ID</th>
+              <th>Time</th>
+              <th>Backend</th>
+              <th>Git Commit</th>
+              <th>Dirty</th>
+            </tr>
+          </thead>
+          <tbody id="source-runs-table">
+            <tr><td colspan="6" style="text-align:center; color: var(--text-muted);">Waiting for source run data.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
   <!-- ROW 4: Tables / Logs -->
   <div class="panel col-12">
     <div class="panel-header"><div class="panel-title">Live Command Trace</div></div>
@@ -882,7 +882,7 @@ OBSERVABILITY_HTML = """\
       setPill(
         $('ready-pill'),
         evidenceReady,
-        evidenceReady ? 'Evidence Valid' : complete ? 'Evidence Warnings' : 'Incomplete Evidence',
+        evidenceReady ? 'Live' : complete ? 'Warnings' : 'Loading',
         complete
       );
       
