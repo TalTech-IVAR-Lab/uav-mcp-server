@@ -237,7 +237,9 @@ def test_observability_store_records_runtime_events(tmp_path) -> None:
     )
 
     events = store.recent()
-    summary = store.summary()
+    # minutes=0 → all-time summary; the event has a hardcoded past timestamp
+    # that would be outside any fixed time window.
+    summary = store.summary(minutes=0)
 
     assert events[0]["command"] == "goto_relative"
     assert events[0]["request"] == {"north_m": 100}

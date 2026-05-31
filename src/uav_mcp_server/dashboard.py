@@ -462,11 +462,19 @@ def register_dashboard_routes(mcp: Any, state: DashboardState) -> None:
 
     @mcp.custom_route("/dashboard/api/observability/summary", methods=["GET"])
     async def dashboard_api_observability_summary(request: Request) -> Response:
-        del request
         if state.observability is None:
             return JSONResponse({"summary": "Observability is unavailable."}, status_code=200)
         runtime_health = state.get_runtime_health() if state.get_runtime_health is not None else {}
-        return JSONResponse(state.observability.summary(runtime_health=runtime_health))
+        try:
+            minutes = max(1, min(int(request.query_params.get("minutes", 10)), 1440))
+            bucket_size_s = max(1, min(int(request.query_params.get("bucket_size_s", 2)), 300))
+        except (TypeError, ValueError):
+            minutes, bucket_size_s = 10, 2
+        return JSONResponse(state.observability.summary(
+            runtime_health=runtime_health,
+            minutes=minutes,
+            bucket_size_s=bucket_size_s,
+        ))
 
     @mcp.custom_route("/dashboard/api/observability/runs", methods=["GET"])
     async def dashboard_api_observability_runs(request: Request) -> Response:

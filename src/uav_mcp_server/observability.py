@@ -247,8 +247,23 @@ class ObservabilityStore:
         return [self._row_to_dict(row) for row in rows]
 
     def summary(self, minutes: int = 10, bucket_size_s: int = 2) -> dict[str, Any]:
-        with self._connect() as connection:
-            rows = connection.execute("SELECT * FROM observability_events ORDER BY timestamp ASC").fetchall()
+        now = datetime.now(timezone.utc)
+        # minutes=0 means all-time (no time filter).
+        if minutes > 0:
+            start_time = now - timedelta(minutes=minutes)
+            # Scope ALL stats — counts, latencies, timeseries — to the selected
+            # time window so the graphs and KPIs reflect the same period.
+            with self._connect() as connection:
+                rows = connection.execute(
+                    "SELECT * FROM observability_events WHERE timestamp >= ? ORDER BY timestamp ASC",
+                    (start_time.isoformat(),),
+                ).fetchall()
+        else:
+            start_time = now - timedelta(minutes=60)  # timeseries still needs a range
+            with self._connect() as connection:
+                rows = connection.execute(
+                    "SELECT * FROM observability_events ORDER BY timestamp ASC"
+                ).fetchall()
 
         events = [self._row_to_dict(row) for row in rows]
         
@@ -288,9 +303,7 @@ class ObservabilityStore:
         plan_success_count = sum(1 for event in plan_events if event.get("success") is True)
         plan_success_rate = plan_success_count / len(plan_events) if plan_events else None
         
-        # Calculate Timeseries
-        now = datetime.now(timezone.utc)
-        start_time = now - timedelta(minutes=minutes)
+        # Calculate Timeseries (reuse already-computed now/start_time above)
         start_ts = start_time.timestamp()
         
         buckets_data: dict[int, list[dict[str, Any]]] = {}
@@ -459,7 +472,13 @@ class ObservabilityService:
     def recent_events(self, *, limit: int = 200) -> list[dict[str, Any]]:
         return self.store.recent(limit=limit)
 
-    def summary(self, *, runtime_health: dict[str, Any] | None = None) -> dict[str, Any]:
+    def summary(
+        self,
+        *,
+        runtime_health: dict[str, Any] | None = None,
+        minutes: int = 10,
+        bucket_size_s: int = 2,
+    ) -> dict[str, Any]:
         runs, errors = self._load_runs()
         latest_by_benchmark: dict[str, dict[str, Any]] = {}
         for run in runs:
@@ -497,7 +516,7 @@ class ObservabilityService:
             },
             "thesis_metrics": thesis_metrics,
             "runtime": runtime_health or {},
-            "events": self.store.summary(),
+            "events": self.store.summary(minutes=minutes, bucket_size_s=bucket_size_s),
             "load_errors": errors,
         }
 

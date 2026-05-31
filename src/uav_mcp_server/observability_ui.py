@@ -200,10 +200,14 @@ OBSERVABILITY_HTML = """\
   <div class="topbar-right">
     <div style="display: flex; gap: 8px; align-items: center; margin-right: 12px;">
       <select id="time-window" class="btn" style="padding: 4px 8px;">
-        <option value="15">Last 30s</option>
-        <option value="30">Last 1m</option>
-        <option value="150" selected>Last 5m</option>
-        <option value="300">Last 10m</option>
+        <option value="1">Last 1m</option>
+        <option value="5" selected>Last 5m</option>
+        <option value="15">Last 15m</option>
+        <option value="30">Last 30m</option>
+        <option value="60">Last 1h</option>
+        <option value="360">Last 6h</option>
+        <option value="1440">Last 24h</option>
+        <option value="0">All time</option>
       </select>
       <select id="refresh-rate" class="btn" style="padding: 4px 8px;">
         <option value="0">Off (Pause)</option>
@@ -464,7 +468,19 @@ OBSERVABILITY_HTML = """\
   
   // --- Data History for Time-Series ---
   const MAX_HISTORY_POINTS = 300;
-  let currentDisplayPoints = 150;
+  // minutes → bucket size that gives ~150 points max for readable charts
+  function bucketSizeForMinutes(m) {
+    if (m === 0)  return 600; // all-time → large buckets
+    if (m <= 1)   return 1;
+    if (m <= 5)   return 2;
+    if (m <= 15)  return 6;
+    if (m <= 30)  return 12;
+    if (m <= 60)  return 24;
+    if (m <= 360) return 120;
+    return 600;
+  }
+  let currentMinutes = 5;
+  let currentBucketSize = bucketSizeForMinutes(5);
   
   const history = {
     timestamps: [],
@@ -847,8 +863,9 @@ OBSERVABILITY_HTML = """\
   
   async function updateData() {
     try {
+      const summaryUrl = `/dashboard/api/observability/summary?minutes=${currentMinutes}&bucket_size_s=${currentBucketSize}`;
       const [summaryReq, runsReq, eventsReq] = await Promise.all([
-        fetch('/dashboard/api/observability/summary', { headers: { 'Accept': 'application/json' } }),
+        fetch(summaryUrl, { headers: { 'Accept': 'application/json' } }),
         fetch('/dashboard/api/observability/runs', { headers: { 'Accept': 'application/json' } }),
         fetch('/dashboard/api/observability/events?limit=50', { headers: { 'Accept': 'application/json' } })
       ]);
@@ -892,21 +909,21 @@ OBSERVABILITY_HTML = """\
         history.throughputManualError = ts.throughputManualError || [];
       }
       
-      // Update Charts
+      // Update Charts — server already scoped the data to currentMinutes window
       if (latencyChart && throughputChart && manualChart) {
-        latencyChart.data.labels = history.timestamps.slice(-currentDisplayPoints);
-        latencyChart.data.datasets[0].data = history.latencyP95.slice(-currentDisplayPoints);
-        latencyChart.data.datasets[1].data = history.latencyMean.slice(-currentDisplayPoints);
+        latencyChart.data.labels = history.timestamps;
+        latencyChart.data.datasets[0].data = history.latencyP95;
+        latencyChart.data.datasets[1].data = history.latencyMean;
         latencyChart.update('none');
-        
-        throughputChart.data.labels = history.timestamps.slice(-currentDisplayPoints);
-        throughputChart.data.datasets[0].data = history.throughputSuccess.slice(-currentDisplayPoints);
-        throughputChart.data.datasets[1].data = history.throughputError.slice(-currentDisplayPoints);
+
+        throughputChart.data.labels = history.timestamps;
+        throughputChart.data.datasets[0].data = history.throughputSuccess;
+        throughputChart.data.datasets[1].data = history.throughputError;
         throughputChart.update('none');
 
-        manualChart.data.labels = history.timestamps.slice(-currentDisplayPoints);
-        manualChart.data.datasets[0].data = history.throughputManualSuccess.slice(-currentDisplayPoints);
-        manualChart.data.datasets[1].data = history.throughputManualError.slice(-currentDisplayPoints);
+        manualChart.data.labels = history.timestamps;
+        manualChart.data.datasets[0].data = history.throughputManualSuccess;
+        manualChart.data.datasets[1].data = history.throughputManualError;
         manualChart.update('none');
       }
       
@@ -930,7 +947,8 @@ OBSERVABILITY_HTML = """\
   });
   
   $('time-window').addEventListener('change', (e) => {
-    currentDisplayPoints = Number(e.target.value);
+    currentMinutes = Number(e.target.value);
+    currentBucketSize = bucketSizeForMinutes(currentMinutes);
     updateData();
   });
 
